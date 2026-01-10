@@ -285,7 +285,7 @@ extern "C" cublasStatus_t cublasDestroy_v2(cublasHandle_t handle) {
 #else
     cleanup_work(handle);
     using cublasDestroy_t                     = cublasStatus_t (*)(cublasHandle_t);
-    static cublasDestroy_t real_cublasDestroy = (cublasDestroy_t)dlsym(RTLD_NEXT, "cublasDestroy_v2");
+    static cublasDestroy_t real_cublasDestroy = (cublasDestroy_t)dlsym(RTLD_NEXT, STR(cublasDestroy_v2));
     if (!real_cublasDestroy) return CUBLAS_STATUS_NOT_INITIALIZED;
     return real_cublasDestroy(handle);
 #endif
@@ -318,7 +318,7 @@ extern "C" cublasStatus_t cublasSgemm_v2(
 
     if (num_moduli < 2u || 20u < num_moduli) {
         using gemm_t            = cublasStatus_t (*)(cublasHandle_t, cublasOperation_t, cublasOperation_t, int, int, int, const float *, const float *, int, const float *, int, const float *, float *, int);
-        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, "cublasSgemm_v2");
+        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, STR(cublasSgemm_v2));
         if (!real_gemm) return CUBLAS_STATUS_NOT_INITIALIZED;
         return real_gemm(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
     }
@@ -422,7 +422,7 @@ extern "C" cublasStatus_t cublasDgemm_v2(
 
     if (num_moduli < 2u || 20u < num_moduli) {
         using gemm_t            = cublasStatus_t (*)(cublasHandle_t, cublasOperation_t, cublasOperation_t, int, int, int, const double *, const double *, int, const double *, int, const double *, double *, int);
-        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, "cublasDgemm_v2");
+        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, STR(cublasDgemm_v2));
         if (!real_gemm) return CUBLAS_STATUS_NOT_INITIALIZED;
         return real_gemm(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
     }
@@ -526,7 +526,7 @@ extern "C" cublasStatus_t cublasCgemm_v2(
 
     if (num_moduli < 2u || 20u < num_moduli) {
         using gemm_t            = cublasStatus_t (*)(cublasHandle_t, cublasOperation_t, cublasOperation_t, int, int, int, const cuComplex *, const cuComplex *, int, const cuComplex *, int, const cuComplex *, cuComplex *, int);
-        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, "cublasCgemm_v2");
+        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, STR(cublasCgemm_v2));
         if (!real_gemm) return CUBLAS_STATUS_NOT_INITIALIZED;
         return real_gemm(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
     }
@@ -630,7 +630,7 @@ extern "C" cublasStatus_t cublasZgemm_v2(
 
     if (num_moduli < 2u || 20u < num_moduli) {
         using gemm_t            = cublasStatus_t (*)(cublasHandle_t, cublasOperation_t, cublasOperation_t, int, int, int, const cuDoubleComplex *, const cuDoubleComplex *, int, const cuDoubleComplex *, int, const cuDoubleComplex *, cuDoubleComplex *, int);
-        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, "cublasZgemm_v2");
+        static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, STR(cublasZgemm_v2));
         if (!real_gemm) return CUBLAS_STATUS_NOT_INITIALIZED;
         return real_gemm(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
     }
@@ -1091,7 +1091,7 @@ extern "C" cublasStatus_t cublasGemmEx(
                                       void *, cudaDataType, int,
                                       cublasComputeType_t, cublasGemmAlgo_t);
 
-    static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, "cublasGemmEx");
+    static gemm_t real_gemm = (gemm_t)dlsym(RTLD_NEXT, STR(cublasGemmEx));
     if (!real_gemm) return CUBLAS_STATUS_NOT_INITIALIZED;
     return real_gemm(handle, transa, transb, m, n, k, alpha, A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc, computeType, algo);
 
