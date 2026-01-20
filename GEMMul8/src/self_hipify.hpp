@@ -12,6 +12,7 @@
 
     #define cublasCreate                  hipblasCreate
     #define cublasDestroy                 hipblasDestroy
+    #define cublasDestroy_v2              hipblasDestroy
     #define cublasHandle_t                hipblasHandle_t
     #define cublasOperation_t             hipblasOperation_t
     #define cublasStatus_t                hipblasStatus_t
@@ -84,5 +85,11 @@
     #define cuComplexFloatToDouble hipComplexFloatToDouble
     #define cuComplexDoubleToFloat hipComplexDoubleToFloat
 
+    #define STR_MACRO(x) #x
+    #define STR(x) STR_MACRO(x)
+
     #define __shfl_down_sync(mask, val, offset, width) __shfl_down(val, offset, width)
+#else
+    // No change for cuda
+    #define STR(x) #x
 #endif
