@@ -277,10 +277,10 @@ std::vector<double> gemm(
 
 `UseExtraWorkspace` trades GPU memory usage for higher performance.
 
-- `UseExtraWorkspace = true`  
+- `UseExtraWorkspace = true` (default)
   Enables an implementation that uses additional workspace memory to reduce kernel launch overhead, resulting in higher performance.
 
-- `UseExtraWorkspace = false` (default)  
+- `UseExtraWorkspace = false`
   Uses a normal implementation with lower workspace requirements, at the cost of reduced performance.
 
 This option does not affect numerical accuracy or reproducibility.
@@ -430,7 +430,7 @@ export GEMMUL8_USE_EXTRA_WORKSPACE=1
 | `GEMMUL8_MAX_NUM_MOD`         | `2`     | all        | Maximum number of moduli used when computing the size of the preallocated workspace. |
 | `GEMMUL8_SKIP_SCALE_A`        | `0`     | all        | Enables skipping redundant preprocessing for `A` (`1` = enable, `0` = disable).      |
 | `GEMMUL8_SKIP_SCALE_B`        | `0`     | all        | Enables skipping redundant preprocessing for `B` (`1` = enable, `0` = disable).      |
-| `GEMMUL8_USE_EXTRA_WORKSPACE` | `0`     | all        | Enables extra workspace for intermediate buffers (`1` = enable, `0` = disable).      |
+| `GEMMUL8_USE_EXTRA_WORKSPACE` | `1`     | all        | Enables extra workspace for intermediate buffers (`1` = enable, `0` = disable).      |
 
 - If `GEMMUL8_NUM_MOD_{S|D|Z|C} < 2 || 20 < GEMMUL8_NUM_MOD_{S|D|Z|C}`, execute the corresponding native gemm routine.
 - This hook mode preallocates a single large GPU workspace on demand and resizes as needed.
