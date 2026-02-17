@@ -144,7 +144,7 @@ template <gemmul8::Backend b, typename T> using upperBound_t = typename upperBou
 //==========
 // Number of bits for extraction
 //==========
-template <gemmul8::Backend b> inline constexpr int maxUFP = (b == gemmul8::Backend::FP8) ? 6 : 5;
+template <gemmul8::Backend b> inline constexpr int maxUFP = (b == gemmul8::Backend::FP8) ? 7 : 5;
 
 //==========
 // Floating-point traits
