@@ -70,7 +70,7 @@ template <gemmul8::Backend backend> constexpr unsigned num_mat(unsigned num_modu
     if constexpr (backend == gemmul8::Backend::INT8) return num_moduli;
     else {
         if (num_moduli <= not_Karatsuba) return 2 * num_moduli;
-        else return 2 * not_Karatsuba + 3 * (num_moduli - 5);
+        else return 2 * not_Karatsuba + 3 * (num_moduli - not_Karatsuba);
     }
 };
 
