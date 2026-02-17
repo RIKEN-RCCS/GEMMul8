@@ -27,7 +27,7 @@ size_t workSize(
     size_t m,                         // Number of rows of C
     size_t n,                         // Number of columns of C
     size_t k,                         // Inner dimension <= 2^17
-    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20
+    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20 for FP64, 2 <= num_moduli <= 13 for FP32
     bool enable_skip_scalA = false,   // [optional] Reserve extra space for A to allow skip_scalA
     bool enable_skip_scalB = false,   // [optional] Reserve extra space for B to allow skip_scalB
     size_t *workSizeA      = nullptr, // [optional] Output: workspace size used for A8i and sftA
@@ -47,14 +47,14 @@ std::vector<double> gemm(
     size_t n,                         // Number of columns of C
     size_t k,                         // Inner dimension <= 2^17
     const T *alpha,                   // Scaling factor for op(A)*op(B)
-    const T *const A,                 // 1-D device array of dimensions lda*k (CUBLAS_OP_N) or lda*m (CUBLAS_OP_T)
+    const T *const A,                 // 1-D device array of dimensions lda*k (CUBLAS_OP_N) or lda*m (CUBLAS_OP_T/C)
     size_t lda,                       // Leading dimension of A
-    const T *const B,                 // 1-D device array of dimensions ldb*n (CUBLAS_OP_N) or ldb*k (CUBLAS_OP_T)
+    const T *const B,                 // 1-D device array of dimensions ldb*n (CUBLAS_OP_N) or ldb*k (CUBLAS_OP_T/C)
     size_t ldb,                       // Leading dimension of B
     const T *beta,                    // Scaling factor for C
     T *const C,                       // 1-D device array of dimensions ldc*n
     size_t ldc,                       // Leading dimension of C
-    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20
+    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20 for FP64, 2 <= num_moduli <= 13 for FP32
     bool fastmode,                    // false (accurate mode) or true (fast mode)
     void *const work,                 // Preallocated workspace
     void *const workA      = nullptr, // [optional] Separate workspace for A (if nullptr, uses work)
@@ -74,14 +74,14 @@ std::vector<double> gemm(
     size_t n,                         // Number of columns of C
     size_t k,                         // Inner dimension <= 2^17
     const T *alpha,                   // Scaling factor for op(A)*op(B)
-    const T *const A,                 // 1-D device array of dimensions lda*k (CUBLAS_OP_N) or lda*m (CUBLAS_OP_T)
+    const T *const A,                 // 1-D device array of dimensions lda*k (CUBLAS_OP_N) or lda*m (CUBLAS_OP_T/C)
     size_t lda,                       // Leading dimension of A
-    const T *const B,                 // 1-D device array of dimensions ldb*n (CUBLAS_OP_N) or ldb*k (CUBLAS_OP_T)
+    const T *const B,                 // 1-D device array of dimensions ldb*n (CUBLAS_OP_N) or ldb*k (CUBLAS_OP_T/C)
     size_t ldb,                       // Leading dimension of B
     const T *beta,                    // Scaling factor for C
     T *const C,                       // 1-D device array of dimensions ldc*n
     size_t ldc,                       // Leading dimension of C
-    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20
+    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20 for FP64, 2 <= num_moduli <= 13 for FP32
     bool fastmode,                    // false (accurate mode) or true (fast mode)
     void *const work,                 // Preallocated workspace
     void *const workA      = nullptr, // [optional] Separate workspace for A (if nullptr, uses work)
@@ -104,14 +104,14 @@ std::vector<double> gemm(
     size_t n,                         // Number of columns of C
     size_t k,                         // Inner dimension <= 2^17
     const T *alpha,                   // Scaling factor for op(A)*op(B)
-    const T *const A,                 // 1-D device array of dimensions lda*k (HIPBLAS_OP_N) or lda*m (HIPBLAS_OP_T)
+    const T *const A,                 // 1-D device array of dimensions lda*k (HIPBLAS_OP_N) or lda*m (HIPBLAS_OP_T/C)
     size_t lda,                       // Leading dimension of A
-    const T *const B,                 // 1-D device array of dimensions ldb*n (HIPBLAS_OP_N) or ldb*k (HIPBLAS_OP_T)
+    const T *const B,                 // 1-D device array of dimensions ldb*n (HIPBLAS_OP_N) or ldb*k (HIPBLAS_OP_T/C)
     size_t ldb,                       // Leading dimension of B
     const T *beta,                    // Scaling factor for C
     T *const C,                       // 1-D device array of dimensions ldc*n
     size_t ldc,                       // Leading dimension of C
-    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20
+    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20 for FP64, 2 <= num_moduli <= 13 for FP32
     bool fastmode,                    // false (accurate mode) or true (fast mode)
     void *const work,                 // Preallocated workspace
     void *const workA      = nullptr, // [optional] Separate workspace for A (if nullptr, uses work)
@@ -131,14 +131,14 @@ std::vector<double> gemm(
     size_t n,                         // Number of columns of C
     size_t k,                         // Inner dimension <= 2^17
     const T *alpha,                   // Scaling factor for op(A)*op(B)
-    const T *const A,                 // 1-D device array of dimensions lda*k (HIPBLAS_OP_N) or lda*m (HIPBLAS_OP_T)
+    const T *const A,                 // 1-D device array of dimensions lda*k (HIPBLAS_OP_N) or lda*m (HIPBLAS_OP_T/C)
     size_t lda,                       // Leading dimension of A
-    const T *const B,                 // 1-D device array of dimensions ldb*n (HIPBLAS_OP_N) or ldb*k (HIPBLAS_OP_T)
+    const T *const B,                 // 1-D device array of dimensions ldb*n (HIPBLAS_OP_N) or ldb*k (HIPBLAS_OP_T/C)
     size_t ldb,                       // Leading dimension of B
     const T *beta,                    // Scaling factor for C
     T *const C,                       // 1-D device array of dimensions ldc*n
     size_t ldc,                       // Leading dimension of C
-    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20
+    unsigned num_moduli,              // #moduli, 2 <= num_moduli <= 20 for FP64, 2 <= num_moduli <= 13 for FP32
     bool fastmode,                    // false (accurate mode) or true (fast mode)
     void *const work,                 // Preallocated workspace
     void *const workA      = nullptr, // [optional] Separate workspace for A (if nullptr, uses work)

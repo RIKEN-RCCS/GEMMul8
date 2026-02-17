@@ -21,9 +21,9 @@
 | :---------------------- | :------ | :--------- | :-------------------------------------------------------------------------------------------------------- |
 | `GEMMUL8_BACKEND`       | `0`     | all        | Selects the emulation backend (`0` or `INT8` = INT8-based emulation, `1` or `FP8` = FP8-based emulation). |
 | `GEMMUL8_NUM_MOD_D`     | `0`     | DGEMM      | Number of moduli used in DGEMM emulation. When num_moduli < 2 or 20 < num_moduli, native DGEMM is used.   |
-| `GEMMUL8_NUM_MOD_S`     | `0`     | SGEMM      | Number of moduli used in SGEMM emulation. When num_moduli < 2 or 14 < num_moduli, native SGEMM is used.   |
+| `GEMMUL8_NUM_MOD_S`     | `0`     | SGEMM      | Number of moduli used in SGEMM emulation. When num_moduli < 2 or 13 < num_moduli, native SGEMM is used.   |
 | `GEMMUL8_NUM_MOD_Z`     | `0`     | ZGEMM      | Number of moduli used in ZGEMM emulation. When num_moduli < 2 or 20 < num_moduli, native ZGEMM is used.   |
-| `GEMMUL8_NUM_MOD_C`     | `0`     | CGEMM      | Number of moduli used in CGEMM emulation. When num_moduli < 2 or 14 < num_moduli, native CGEMM is used.   |
+| `GEMMUL8_NUM_MOD_C`     | `0`     | CGEMM      | Number of moduli used in CGEMM emulation. When num_moduli < 2 or 13 < num_moduli, native CGEMM is used.   |
 | `GEMMUL8_FASTMODE_D`    | `0`     | DGEMM      | Enables fast mode (`1` = fast mode, `0` = accurate mode).                                                 |
 | `GEMMUL8_FASTMODE_S`    | `0`     | SGEMM      | Enables fast mode (`1` = fast mode, `0` = accurate mode).                                                 |
 | `GEMMUL8_FASTMODE_Z`    | `0`     | ZGEMM      | Enables fast mode (`1` = fast mode, `0` = accurate mode).                                                 |
@@ -40,8 +40,8 @@
 namespace {
 
 template <typename T> inline constexpr unsigned num_moduli_threshold  = 20u;
-template <> inline constexpr unsigned num_moduli_threshold<float>     = 14u;
-template <> inline constexpr unsigned num_moduli_threshold<cuComplex> = 14u;
+template <> inline constexpr unsigned num_moduli_threshold<float>     = 13u;
+template <> inline constexpr unsigned num_moduli_threshold<cuComplex> = 13u;
 
 // ---- Default initialization values ----
 namespace initial_vals {
