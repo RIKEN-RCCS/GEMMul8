@@ -6,41 +6,33 @@ export PATH := $(CUDA_PATH)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(CUDA_PATH)/lib64:$(LD_LIBRARY_PATH)
 
 COMPILER := nvcc
-LIBS := -lcublas -lcudart -lcuda -lnvidia-ml -ldl ../lib/libgemmul8.a
+LIBS := -lcublas -lcudart -lcublasLt -lcuda -lnvidia-ml -ldl ../lib/libgemmul8.a
 FLAGS := -std=c++20 -O3 -I../include
 ARCH := -gencode arch=compute_$(GPU_ARCH),code=sm_$(GPU_ARCH)
 
-ENV_VAL :=
-ifneq ($(GEMMUL8_NUM_MOD_D),)
-ENV_VAL += GEMMUL8_NUM_MOD_D=$(GEMMUL8_NUM_MOD_D)
-endif
-ifneq ($(GEMMUL8_NUM_MOD_S),)
-ENV_VAL += GEMMUL8_NUM_MOD_S=$(GEMMUL8_NUM_MOD_S)
-endif
-ifneq ($(GEMMUL8_FASTMODE_D),)
-ENV_VAL += GEMMUL8_FASTMODE_D=$(GEMMUL8_FASTMODE_D)
-endif
-ifneq ($(GEMMUL8_FASTMODE_S),)
-ENV_VAL += GEMMUL8_FASTMODE_S=$(GEMMUL8_FASTMODE_S)
-endif
-ifneq ($(GEMMUL8_MAX_M),)
-ENV_VAL += GEMMUL8_MAX_M=$(GEMMUL8_MAX_M)
-endif
-ifneq ($(GEMMUL8_MAX_N),)
-ENV_VAL += GEMMUL8_MAX_N=$(GEMMUL8_MAX_N)
-endif
-ifneq ($(GEMMUL8_MAX_K),)
-ENV_VAL += GEMMUL8_MAX_K=$(GEMMUL8_MAX_K)
-endif
-ifneq ($(GEMMUL8_MAX_NUM_MOD),)
-ENV_VAL += GEMMUL8_MAX_NUM_MOD=$(GEMMUL8_MAX_NUM_MOD)
-endif
+export GEMMUL8_BACKEND=INT8
+export GEMMUL8_NUM_MOD_D=15
+export GEMMUL8_NUM_MOD_S=7
+export GEMMUL8_NUM_MOD_Z=15
+export GEMMUL8_NUM_MOD_C=7
+export GEMMUL8_FASTMODE_D=0
+export GEMMUL8_FASTMODE_S=1
+export GEMMUL8_FASTMODE_Z=0
+export GEMMUL8_FASTMODE_C=1
+export GEMMUL8_MAXWS_BACKEND=INT8
+export GEMMUL8_MAX_M=4096
+export GEMMUL8_MAX_N=4096
+export GEMMUL8_MAX_K=4096
+export GEMMUL8_MAX_NUM_MOD=18
+export GEMMUL8_SKIP_SCALE_A=1
+export GEMMUL8_SKIP_SCALE_B=1
 
-CFLAGS=
-CFLAGS += -DSGEMM
-CFLAGS += -DDGEMM
-CFLAGS += -DCGEMM
-CFLAGS += -DZGEMM
+CFLAGS ?=
+# CFLAGS += -DSGEMM
+# CFLAGS += -DDGEMM
+# CFLAGS += -DCGEMM
+# CFLAGS += -DZGEMM
+# CFLAGS += -DLT
 
 LD:=../lib/libgemmul8.so
 TARGET1 := test

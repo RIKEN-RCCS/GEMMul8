@@ -33,15 +33,12 @@ ifeq ($(GPU_ARCH),auto)
 GPU_ARCH := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | tr -d '.')
 endif
 
-GPU_MEM_MB := $(shell nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1)
-
 export PATH := $(CUDA_PATH)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(CUDA_PATH)/lib64:$(LD_LIBRARY_PATH)
 
 COMPILER := nvcc
 LIBS := -lcublas -lcublasLt -lcudart -lcuda -lnvidia-ml -ldl ../lib/libgemmul8.a
-FLAGS := -std=c++20 -O3 -I../include
-FLAGS += -DGPU_MEM_MB=$(GPU_MEM_MB)
+FLAGS := -std=c++20 -O3 
 ARCH := -gencode arch=compute_$(GPU_ARCH),code=sm_$(GPU_ARCH)
 
 endif
@@ -59,15 +56,13 @@ endif
 
 export PATH := $(HIP_PATH)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(HIP_PATH)/lib:$(LD_LIBRARY_PATH)
-GPU_MEM_MB := $(shell amd-smi static --vram --csv | awk -F, "NR==2 {print \$$4}")
 
 COMPILER := hipcc
 LIBS := -lamd_smi -lamdhip64 -lhipblas -lhipblaslt -ldl -Wl,../lib/libgemmul8.a
-FLAGS := -std=c++20 -O3 -I../include
+FLAGS := -std=c++20 -O3
 FLAGS += -ffp-contract=off
 FLAGS += -Wno-unused-result -Wno-unused-command-line-argument
 FLAGS += -DOCML_BASIC_ROUNDED_OPERATIONS
-FLAGS += -DGPU_MEM_MB=$(GPU_MEM_MB)
 ARCH := --offload-arch=$(GPU_ARCH)
 
 endif
@@ -77,9 +72,11 @@ endif
 # Compile
 #===============
 
-TARGET := test
+TARGET1 := dgemm_cuBLAS_int8
+TARGET2 := dgemm_cuBLASLt_int8
+TARGET3 := dgemm_cuBLASLt_fp8
 
-all: INFO VERSION $(TARGET)
+all: INFO VERSION $(TARGET1) $(TARGET2) $(TARGET3)
 
 INFO:
 	$(info BACKEND      : $(BACKEND))
@@ -91,17 +88,19 @@ ifeq ($(BACKEND),hip)
 endif
 	$(info GPU_ARCH     : $(GPU_ARCH))
 	$(info COMPILER     : $(COMPILER))
-	$(info GPU_MEM [MB] : $(GPU_MEM_MB))
 
-$(TARGET): $(TARGET).cu
+$(TARGET1): $(TARGET1).cu
+	$(COMPILER) $< $(FLAGS) $(ARCH) -o $@ $(LIBS)
+
+$(TARGET2): $(TARGET2).cu
+	$(COMPILER) $< $(FLAGS) $(ARCH) -o $@ $(LIBS)
+	
+$(TARGET3): $(TARGET3).cu
 	$(COMPILER) $< $(FLAGS) $(ARCH) -o $@ $(LIBS)
 
 VERSION:
-	$(COMPILER) --version 2>&1 | tee $(COMPILER)_version
-
-run:
-	./$(TARGET) $(MODE)
+	$(COMPILER) --version
 
 clean:
 	rm -f *.o
-	rm -f $(TARGET)
+	rm -f $(TARGET1) $(TARGET2) $(TARGET3)

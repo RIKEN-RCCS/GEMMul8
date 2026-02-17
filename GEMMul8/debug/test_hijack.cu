@@ -38,7 +38,7 @@ void run_dgemm(cublasHandle_t handle, const double *dA, const double *dB, double
     CHECK_CUBLAS(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dA, m, dB, k, &beta, dC, m));
     cudaDeviceSynchronize();
 
-    const unsigned num_moduli = 20u;                                           // Accuracy knob: 2 <= num_moduli <= 20
+    const unsigned num_moduli = 18u;                                           // Accuracy knob: 2 <= num_moduli <= 20
     const bool fastmode       = false;                                         // true (fast mode) or false (accurate mode)
     const size_t worksize     = gemmul8::workSize<false>(m, n, k, num_moduli); // calculate required memory (Byte)
     void *work;
@@ -72,7 +72,7 @@ void run_sgemm(cublasHandle_t handle, const float *dA, const float *dB, float *d
     CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dA, m, dB, k, &beta, dC, m));
     cudaDeviceSynchronize();
 
-    const unsigned num_moduli = 15u;                                           // Accuracy knob: 2 <= num_moduli <= 20
+    const unsigned num_moduli = 13u;                                           // Accuracy knob: 2 <= num_moduli <= 20
     const bool fastmode       = false;                                         // true (fast mode) or false (accurate mode)
     const size_t worksize     = gemmul8::workSize<false>(m, n, k, num_moduli); // calculate required memory (Byte)
     void *work;
@@ -201,6 +201,8 @@ int main() {
     free(sA2);
     free(sB1);
     free(sB2);
+    
+    CHECK_CUDA(cudaDeviceReset());
 
     return 0;
 }

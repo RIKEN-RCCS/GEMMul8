@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <omp.h>
 #include <vector>
+#include <type_traits>
 
 namespace eval {
 
@@ -13,294 +13,242 @@ namespace eval {
 //------------------------------
 namespace dd {
 
+struct double2_complex {
+    double2 x, y;
+};
+
+__host__ __device__ __forceinline__ double FMA(double a, double b, double c) {
+#ifdef __CUDA_ARCH__
+    return fma(a, b, c);
+#else
+    return std::fma(a, b, c);
+#endif
+}
+
 #pragma clang optimize off
-inline void two_sum(const double a, const double b, double &c, double &d) {
+__device__ __host__ __forceinline__ void two_sum(
+    const double a, const double b,
+    double &c, double &d //
+) {
     c        = a + b;
     double s = c - a;
     double t = b - s;
     double u = c - s;
     d        = (a - u) + t;
 }
-#pragma clang optimize on
 
-#pragma clang optimize off
-inline void two_sub(const double a, const double b, double &c, double &d) {
+__device__ __host__ __forceinline__ void two_sub(
+    const double a, const double b,
+    double &c, double &d //
+) {
     c        = a - b;
     double s = c - a;
     double t = b + s;
     double u = c - s;
     d        = (a - u) - t;
 }
-#pragma clang optimize on
 
-#pragma clang optimize off
-inline void fast_two_sum(const double a, const double b, double &c, double &d) {
+__device__ __host__ __forceinline__ void fast_two_sum(
+    const double a, const double b,
+    double &c, double &d //
+) {
     c = a + b;
     d = (a - c) + b;
 }
-#pragma clang optimize on
 
-#pragma clang optimize off
-inline void two_prod(const double a, const double b, double &c, double &d) {
+__device__ __host__ __forceinline__ void two_prod(
+    const double a, const double b,
+    double &c, double &d //
+) {
     c = a * b;
-    d = std::fma(a, b, -c);
+    d = FMA(a, b, -c);
 }
-#pragma clang optimize on
 
-#pragma clang optimize off
-inline void add(const double a1,
-                const double a2,
-                const double b1,
-                const double b2,
-                double &c1,
-                double &c2) {
-    dd::two_sum(a1, b1, c1, c2);
-    c2 += a2;
-    c2 += b2;
-    dd::fast_two_sum(c1, c2, c1, c2);
+__device__ __host__ __forceinline__ double2 add(const double2 a, const double2 b) {
+    double2 c;
+    two_sum(a.x, b.x, c.x, c.y);
+    c.y += a.y;
+    c.y += b.y;
+    fast_two_sum(c.x, c.y, c.x, c.y);
+    return c;
 }
-#pragma clang optimize on
 
-#pragma clang optimize off
-inline void sub(const double a1,
-                const double a2,
-                const double b1,
-                const double b2,
-                double &c1,
-                double &c2) {
-    dd::two_sub(a1, b1, c1, c2);
-    c2 += a2;
-    c2 -= b2;
-    dd::fast_two_sum(c1, c2, c1, c2);
+__device__ __host__ __forceinline__ double2 add(const double a, const double2 b) {
+    double2 c;
+    two_sum(a, b.x, c.x, c.y);
+    c.y += b.y;
+    fast_two_sum(c.x, c.y, c.x, c.y);
+    return c;
 }
-#pragma clang optimize on
 
-#pragma clang optimize off
-inline void mul(const double a1,
-                const double a2,
-                const double b1,
-                const double b2,
-                double &c1,
-                double &c2) {
-    dd::two_prod(a1, b1, c1, c2);
-    c2 = std::fma(a2, b1, std::fma(a1, b2, c2));
-    dd::fast_two_sum(c1, c2, c1, c2);
+__device__ __host__ __forceinline__ double2 add(const double2 a, const double b) {
+    double2 c;
+    two_sum(a.x, b, c.x, c.y);
+    c.y += a.y;
+    fast_two_sum(c.x, c.y, c.x, c.y);
+    return c;
 }
-#pragma clang optimize on
 
-#pragma clang optimize off
-inline void div(const double a1,
-                const double a2,
-                const double b1,
-                const double b2,
-                double &c1,
-                double &c2) {
+__device__ __host__ __forceinline__ double2 sub(const double2 a, const double2 b) {
+    double2 c;
+    two_sub(a.x, b.x, c.x, c.y);
+    c.y += a.y;
+    c.y -= b.y;
+    fast_two_sum(c.x, c.y, c.x, c.y);
+    return c;
+}
+
+__device__ __host__ __forceinline__ double2 sub(const double a, const double2 b) {
+    double2 c;
+    two_sub(a, b.x, c.x, c.y);
+    c.y -= b.y;
+    fast_two_sum(c.x, c.y, c.x, c.y);
+    return c;
+}
+
+__device__ __host__ __forceinline__ double2 sub(const double a, const double b) {
+    double2 c;
+    two_sub(a, b, c.x, c.y);
+    return c;
+}
+
+__device__ __host__ __forceinline__ double2 mul(const double2 a, const double2 b) {
+    double2 c;
+    two_prod(a.x, b.x, c.x, c.y);
+    c.y = FMA(a.y, b.x, FMA(a.x, b.y, c.y));
+    fast_two_sum(c.x, c.y, c.x, c.y);
+    return c;
+}
+
+__device__ __host__ __forceinline__ double2 mul(const double a, const double2 b) {
+    double2 c;
+    two_prod(a, b.x, c.x, c.y);
+    c.y = FMA(a, b.y, c.y);
+    fast_two_sum(c.x, c.y, c.x, c.y);
+    return c;
+}
+
+__device__ __host__ __forceinline__ double2 mul(const double a, const double b) {
+    double2 c;
+    two_prod(a, b, c.x, c.y);
+    return c;
+}
+
+__device__ __host__ __forceinline__ double2 div(const double2 a, const double2 b) {
+    double2 c;
     double s, t;
-    c1 = a1 / b1;
-    dd::two_prod(c1, b1, s, t);
-    double u = a1 - s;
+    c.x = a.x / b.x;
+    two_prod(c.x, b.x, s, t);
+    double u = a.x - s;
     u -= t;
-    u += a2;
-    u = std::fma(-c1, b2, u);
-    u /= b1;
-    dd::fast_two_sum(c1, u, c1, c2);
-}
-#pragma clang optimize on
-
-void simple_gemm(
-    size_t m,
-    size_t p,
-    size_t n,
-    double *A,  // m*k
-    double *B,  // k*n
-    double *C1, // m*n result
-    double *C2) // m*n result
-{
-    constexpr size_t block_size = 64;
-    constexpr double dzero      = 0.0;
-
-#pragma omp parallel for
-    for (size_t i = 0; i < m * p; i++) {
-        C1[i] = 0.0;
-        C2[i] = 0.0;
-    }
-
-#pragma omp parallel
-    {
-        double *C1_local = (double *)calloc(m * p, sizeof(double));
-        double *C2_local = (double *)calloc(m * p, sizeof(double));
-
-#pragma omp for collapse(2) schedule(static)
-        for (int ii = 0; ii < m; ii += block_size) {
-            for (int jj = 0; jj < p; jj += block_size) {
-                for (int kk = 0; kk < n; kk += block_size) {
-                    for (int i = ii; i < ii + block_size && i < m; i++) {
-                        for (int j = jj; j < jj + block_size && j < p; j++) {
-                            double sum1 = 0.0;
-                            double sum2 = 0.0;
-                            for (int k = kk; k < kk + block_size && k < n; k++) {
-                                double ab1, ab2;
-                                dd::mul(A[i * n + k], dzero, B[k * p + j], dzero, ab1, ab2);
-                                dd::add(ab1, ab2, sum1, sum2, sum1, sum2);
-                            }
-                            dd::add(C1_local[i * p + j], C2_local[i * p + j], sum1, sum2, C1_local[i * p + j], C2_local[i * p + j]);
-                        }
-                    }
-                }
-            }
-        }
-
-#pragma omp critical
-        for (size_t i = 0; i < m * p; i++) {
-            dd::add(C1[i], C2[i], C1_local[i], C2_local[i], C1[i], C2[i]);
-        }
-
-        free(C1_local);
-        free(C2_local);
-    }
+    u += a.y;
+    u = FMA(-c.x, b.y, u);
+    u /= b.x;
+    fast_two_sum(c.x, u, c.x, c.y);
+    return c;
 }
 
-} // namespace dd
-
-//------------------------------
-// dd on gpu
-//------------------------------
-namespace dd_gpu {
-
-#pragma clang optimize off
-__device__ __forceinline__ void two_sum(const double a, const double b, double &c, double &d) {
-    c        = a + b;
-    double s = c - a;
-    double t = b - s;
-    double u = c - s;
-    d        = (a - u) + t;
-}
-#pragma clang optimize on
-
-#pragma clang optimize off
-__device__ __forceinline__ void two_sub(const double a, const double b, double &c, double &d) {
-    c        = a - b;
-    double s = c - a;
-    double t = b + s;
-    double u = c - s;
-    d        = (a - u) - t;
-}
-#pragma clang optimize on
-
-#pragma clang optimize off
-__device__ __forceinline__ void fast_two_sum(const double a, const double b, double &c, double &d) {
-    c = a + b;
-    d = (a - c) + b;
-}
-#pragma clang optimize on
-
-#pragma clang optimize off
-__device__ __forceinline__ void two_prod(const double a, const double b, double &c, double &d) {
-    c = a * b;
-    d = fma(a, b, -c);
-}
-#pragma clang optimize on
-
-#pragma clang optimize off
-__device__ __forceinline__ void add(const double a1,
-                                    const double a2,
-                                    const double b1,
-                                    const double b2,
-                                    double &c1,
-                                    double &c2) {
-    dd_gpu::two_sum(a1, b1, c1, c2);
-    c2 += a2;
-    c2 += b2;
-    dd_gpu::fast_two_sum(c1, c2, c1, c2);
-}
-#pragma clang optimize on
-
-#pragma clang optimize off
-__device__ __forceinline__ void sub(const double a1,
-                                    const double a2,
-                                    const double b1,
-                                    const double b2,
-                                    double &c1,
-                                    double &c2) {
-    dd_gpu::two_sub(a1, b1, c1, c2);
-    c2 += a2;
-    c2 -= b2;
-    dd_gpu::fast_two_sum(c1, c2, c1, c2);
-}
-#pragma clang optimize on
-
-#pragma clang optimize off
-__device__ __forceinline__ void mul(const double a1,
-                                    const double a2,
-                                    const double b1,
-                                    const double b2,
-                                    double &c1,
-                                    double &c2) {
-    dd_gpu::two_prod(a1, b1, c1, c2);
-    c2 = fma(a2, b1, fma(a1, b2, c2));
-    dd_gpu::fast_two_sum(c1, c2, c1, c2);
-}
-#pragma clang optimize on
-
-#pragma clang optimize off
-__device__ __forceinline__ void div(const double a1,
-                                    const double a2,
-                                    const double b1,
-                                    const double b2,
-                                    double &c1,
-                                    double &c2) {
+__device__ __host__ __forceinline__ double2 div(const double2 a, const double b) {
+    double2 c;
     double s, t;
-    c1 = a1 / b1;
-    dd_gpu::two_prod(c1, b1, s, t);
-    double u = a1 - s;
+    c.x = a.x / b;
+    two_prod(c.x, b, s, t);
+    double u = a.x - s;
     u -= t;
-    u += a2;
-    u = fma(-c1, b2, u);
-    u /= b1;
-    dd_gpu::fast_two_sum(c1, u, c1, c2);
+    u += a.y;
+    u /= b;
+    fast_two_sum(c.x, u, c.x, c.y);
+    return c;
 }
 #pragma clang optimize on
 
-template <typename T>
+template <typename T, bool trans>
 __device__ __forceinline__ T load_A_element(const T *A,
                                             size_t m,
                                             size_t k,
                                             size_t row,
-                                            size_t t,
-                                            cublasOperation_t op_A) //
-{
-    if (op_A == CUBLAS_OP_N) {
+                                            size_t t //
+) {
+    if constexpr (!trans) {
         return __ldg(A + row + t * m);
     } else {
         return __ldg(A + t + row * k);
     }
 }
 
-template <typename T>
+template <typename T, bool trans>
 __device__ __forceinline__ T load_B_element(const T *B,
                                             size_t k,
                                             size_t n,
                                             size_t t,
-                                            size_t col,
-                                            cublasOperation_t op_B) //
-{
-    if (op_B == CUBLAS_OP_N) {
+                                            size_t col //
+) {
+    if constexpr (!trans) {
         return __ldg(B + t + col * k);
     } else {
         return __ldg(B + col + t * n);
     }
 }
 
+template <bool transA, bool transB>
 __global__ void simple_gemm_device(size_t m,
                                    size_t n,
                                    size_t k,
-                                   const double *A,
-                                   const double *B,
-                                   double *C1,
-                                   double *C2,
-                                   cublasOperation_t op_A,
-                                   cublasOperation_t op_B) //
-{
+                                   const float *__restrict__ A,
+                                   const float *__restrict__ B,
+                                   double *__restrict__ C //
+) {
+    const int TILE = 32;
+    __shared__ float Asub[TILE][TILE + 1];
+    __shared__ float Bsub[TILE][TILE + 1];
+
+    size_t row = blockIdx.y * blockDim.y + threadIdx.y;
+    size_t col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    double sum = 0.0;
+
+    int numTiles = (int)((k + TILE - 1) / TILE);
+
+    for (int t = 0; t < numTiles; ++t) {
+        size_t a_col = t * TILE + threadIdx.x;
+        if (row < m && a_col < k) {
+            Asub[threadIdx.y][threadIdx.x] = load_A_element<float, transA>(A, m, k, row, a_col);
+        } else {
+            Asub[threadIdx.y][threadIdx.x] = 0.0f;
+        }
+
+        size_t b_row = t * TILE + threadIdx.y;
+        if (col < n && b_row < k) {
+            Bsub[threadIdx.y][threadIdx.x] = load_B_element<float, transB>(B, k, n, b_row, col);
+        } else {
+            Bsub[threadIdx.y][threadIdx.x] = 0.0f;
+        }
+
+        __syncthreads();
+
+#pragma unroll
+        for (int i = 0; i < TILE; ++i) {
+            double a = static_cast<double>(Asub[threadIdx.y][i]);
+            double b = static_cast<double>(Bsub[i][threadIdx.x]);
+            sum      = fma(a, b, sum);
+        }
+
+        __syncthreads();
+    }
+
+    if (row < m && col < n) {
+        C[col * m + row] = sum;
+    }
+}
+
+template <bool transA, bool transB>
+__global__ void simple_gemm_device(size_t m,
+                                   size_t n,
+                                   size_t k,
+                                   const double *__restrict__ A,
+                                   const double *__restrict__ B,
+                                   double2 *__restrict__ C //
+) {
     const int TILE = 32;
     __shared__ double Asub[TILE][TILE + 1];
     __shared__ double Bsub[TILE][TILE + 1];
@@ -308,22 +256,21 @@ __global__ void simple_gemm_device(size_t m,
     size_t row = blockIdx.y * blockDim.y + threadIdx.y;
     size_t col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    double sum1 = 0.0;
-    double sum2 = 0.0;
+    double2 sum{};
 
     int numTiles = (int)((k + TILE - 1) / TILE);
 
     for (int t = 0; t < numTiles; ++t) {
         size_t a_col = t * TILE + threadIdx.x;
         if (row < m && a_col < k) {
-            Asub[threadIdx.y][threadIdx.x] = load_A_element(A, m, k, row, a_col, op_A);
+            Asub[threadIdx.y][threadIdx.x] = load_A_element<double, transA>(A, m, k, row, a_col);
         } else {
             Asub[threadIdx.y][threadIdx.x] = 0.0;
         }
 
         size_t b_row = t * TILE + threadIdx.y;
         if (col < n && b_row < k) {
-            Bsub[threadIdx.y][threadIdx.x] = load_B_element(B, k, n, b_row, col, op_B);
+            Bsub[threadIdx.y][threadIdx.x] = load_B_element<double, transB>(B, k, n, b_row, col);
         } else {
             Bsub[threadIdx.y][threadIdx.x] = 0.0;
         }
@@ -334,47 +281,85 @@ __global__ void simple_gemm_device(size_t m,
         for (int i = 0; i < TILE; ++i) {
             double a = Asub[threadIdx.y][i];
             double b = Bsub[i][threadIdx.x];
-            double ab1, ab2;
-            dd_gpu::two_prod(a, b, ab1, ab2);
-            dd_gpu::add(ab1, ab2, sum1, sum2, sum1, sum2);
+            sum      = add(sum, mul(a, b));
         }
 
         __syncthreads();
     }
 
     if (row < m && col < n) {
-        C1[col * m + row] = sum1;
-        C2[col * m + row] = sum2;
+        C[col * m + row] = sum;
     }
 }
 
-void simple_gemm(size_t m,
-                 size_t n,
-                 size_t k,
-                 const double *A,
-                 const double *B,
-                 double *C1,
-                 double *C2,
-                 cublasOperation_t op_A = CUBLAS_OP_N,
-                 cublasOperation_t op_B = CUBLAS_OP_N) //
-{
-    dim3 threadsPerBlock(32, 32);
-    dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
-                   (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
-
-    simple_gemm_device<<<numBlocks, threadsPerBlock>>>(m, n, k, A, B, C1, C2, op_A, op_B);
-}
-
+template <bool transA, bool transB>
 __global__ void simple_gemm_device(size_t m,
                                    size_t n,
                                    size_t k,
-                                   const cuDoubleComplex *A,
-                                   const cuDoubleComplex *B,
-                                   cuDoubleComplex *C1,
-                                   cuDoubleComplex *C2,
-                                   cublasOperation_t op_A,
-                                   cublasOperation_t op_B) //
-{
+                                   const cuFloatComplex *__restrict__ A,
+                                   const cuFloatComplex *__restrict__ B,
+                                   cuDoubleComplex *__restrict__ C //
+) {
+    const int TILE = 32;
+    __shared__ cuFloatComplex Asub[TILE][TILE + 1];
+    __shared__ cuFloatComplex Bsub[TILE][TILE + 1];
+
+    size_t row = blockIdx.y * blockDim.y + threadIdx.y;
+    size_t col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    double2 sum{};
+
+    int numTiles = (int)((k + TILE - 1) / TILE);
+
+    for (int t = 0; t < numTiles; ++t) {
+        size_t a_col = t * TILE + threadIdx.x;
+        if (row < m && a_col < k) {
+            Asub[threadIdx.y][threadIdx.x] = load_A_element<cuFloatComplex, transA>(A, m, k, row, a_col);
+        } else {
+            Asub[threadIdx.y][threadIdx.x] = cuFloatComplex{0.0f, 0.0f};
+        }
+
+        size_t b_row = t * TILE + threadIdx.y;
+        if (col < n && b_row < k) {
+            Bsub[threadIdx.y][threadIdx.x] = load_B_element<cuFloatComplex, transB>(B, k, n, b_row, col);
+        } else {
+            Bsub[threadIdx.y][threadIdx.x] = cuFloatComplex{0.0f, 0.0f};
+        }
+
+        __syncthreads();
+
+#pragma unroll
+        for (int i = 0; i < TILE; ++i) {
+            cuFloatComplex a = Asub[threadIdx.y][i];
+            cuFloatComplex b = Bsub[i][threadIdx.x];
+
+            // (ar + i ai)(br + i bi)
+            double ar = double(a.x), ai = double(a.y);
+            double br = double(b.x), bi = double(b.y);
+
+            // --- real contribution: ar*br - ai*bi ---
+            sum.x = fma(ar, br, fma(-ai, bi, sum.x));
+
+            // --- imag contribution: ar*bi + ai*br ---
+            sum.y = fma(ar, bi, fma(ai, br, sum.y));
+        }
+
+        __syncthreads();
+    }
+
+    if (row < m && col < n) {
+        C[col * m + row] = sum;
+    }
+}
+
+template <bool transA, bool transB>
+__global__ void simple_gemm_device(size_t m,
+                                   size_t n,
+                                   size_t k,
+                                   const cuDoubleComplex *__restrict__ A,
+                                   const cuDoubleComplex *__restrict__ B,
+                                   eval::dd::double2_complex *__restrict__ C //
+) {
     const int TILE = 32;
     __shared__ cuDoubleComplex Asub[TILE][TILE + 1];
     __shared__ cuDoubleComplex Bsub[TILE][TILE + 1];
@@ -382,24 +367,23 @@ __global__ void simple_gemm_device(size_t m,
     size_t row = blockIdx.y * blockDim.y + threadIdx.y;
     size_t col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    double sum1_r = 0.0, sum2_r = 0.0;
-    double sum1_i = 0.0, sum2_i = 0.0;
+    double2 sum_r{}, sum_i{};
 
     int numTiles = (int)((k + TILE - 1) / TILE);
 
     for (int t = 0; t < numTiles; ++t) {
         size_t a_col = t * TILE + threadIdx.x;
         if (row < m && a_col < k) {
-            Asub[threadIdx.y][threadIdx.x] = load_A_element(A, m, k, row, a_col, op_A);
+            Asub[threadIdx.y][threadIdx.x] = load_A_element<cuDoubleComplex, transA>(A, m, k, row, a_col);
         } else {
-            Asub[threadIdx.y][threadIdx.x] = make_cuDoubleComplex(0.0, 0.0);
+            Asub[threadIdx.y][threadIdx.x] = cuDoubleComplex{0.0, 0.0};
         }
 
         size_t b_row = t * TILE + threadIdx.y;
         if (col < n && b_row < k) {
-            Bsub[threadIdx.y][threadIdx.x] = load_B_element(B, k, n, b_row, col, op_B);
+            Bsub[threadIdx.y][threadIdx.x] = load_B_element<cuDoubleComplex, transB>(B, k, n, b_row, col);
         } else {
-            Bsub[threadIdx.y][threadIdx.x] = make_cuDoubleComplex(0.0, 0.0);
+            Bsub[threadIdx.y][threadIdx.x] = cuDoubleComplex{0.0, 0.0};
         }
 
         __syncthreads();
@@ -410,203 +394,143 @@ __global__ void simple_gemm_device(size_t m,
             cuDoubleComplex b = Bsub[i][threadIdx.x];
 
             // (ar + i ai)(br + i bi)
-            double ar = cuCreal(a), ai = cuCimag(a);
-            double br = cuCreal(b), bi = cuCimag(b);
+            double ar = double(a.x), ai = double(a.y);
+            double br = double(b.x), bi = double(b.y);
 
             // --- real contribution: ar*br - ai*bi ---
-            double p1, p2;
-            dd_gpu::two_prod(ar, br, p1, p2);
-            double q1, q2;
-            dd_gpu::two_prod(ai, bi, q1, q2);
-
-            double r1, r2;
-            dd_gpu::sub(p1, p2, q1, q2, r1, r2);
-            dd_gpu::add(sum1_r, sum2_r, r1, r2, sum1_r, sum2_r);
+            double2 re = sub(mul(ar, br), mul(ai, bi));
+            sum_r      = add(sum_r, re);
 
             // --- imag contribution: ar*bi + ai*br ---
-            dd_gpu::two_prod(ar, bi, p1, p2);
-            dd_gpu::two_prod(ai, br, q1, q2);
-            dd_gpu::add(p1, p2, q1, q2, r1, r2);
-            dd_gpu::add(sum1_i, sum2_i, r1, r2, sum1_i, sum2_i);
+            double2 im = add(mul(ar, bi), mul(ai, br));
+            sum_i      = add(sum_i, im);
         }
 
         __syncthreads();
     }
 
     if (row < m && col < n) {
-        C1[col * m + row] = make_cuDoubleComplex(sum1_r, sum1_i);
-        C2[col * m + row] = make_cuDoubleComplex(sum2_r, sum2_i);
+        C[col * m + row] = eval::dd::double2_complex{sum_r, sum_i};
     }
 }
 
+template <typename Tin, typename Tout>
 void simple_gemm(size_t m,
                  size_t n,
                  size_t k,
-                 const cuDoubleComplex *A,
-                 const cuDoubleComplex *B,
-                 cuDoubleComplex *C1,
-                 cuDoubleComplex *C2,
-                 cublasOperation_t op_A = CUBLAS_OP_N,
-                 cublasOperation_t op_B = CUBLAS_OP_N) //
-{
+                 const Tin *A,
+                 const Tin *B,
+                 Tout *C,
+                 cublasOperation_t op_A = CUBLAS_OP_N, //
+                 cublasOperation_t op_B = CUBLAS_OP_N  //
+) {
     dim3 threadsPerBlock(32, 32);
     dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
-    simple_gemm_device<<<numBlocks, threadsPerBlock>>>(m, n, k, A, B, C1, C2, op_A, op_B);
+    if (op_A == CUBLAS_OP_N) {
+        if (op_B == CUBLAS_OP_N) {
+            simple_gemm_device<false, false><<<numBlocks, threadsPerBlock>>>(m, n, k, A, B, C);
+        } else {
+            simple_gemm_device<false, true><<<numBlocks, threadsPerBlock>>>(m, n, k, A, B, C);
+        }
+    } else {
+        if (op_B == CUBLAS_OP_N) {
+            simple_gemm_device<true, false><<<numBlocks, threadsPerBlock>>>(m, n, k, A, B, C);
+        } else {
+            simple_gemm_device<true, true><<<numBlocks, threadsPerBlock>>>(m, n, k, A, B, C);
+        }
+    }
+    cudaDeviceSynchronize();
 }
 
-} // namespace dd_gpu
+} // namespace dd
 
 //------------------------------
 // evaluate error
 //------------------------------
 namespace err {
 
-void gemm_err(const size_t m,
-              const size_t n,
-              double *const C,        // calculated value
-              const double *const C1, // true value
-              const double *const C2, // true value
-              double &err1,           // max
-              double &err2)           // median
-{
-    size_t sizeC = m * n;
-
-#pragma omp parallel for
-    for (size_t i = 0; i < sizeC; i++) {
-        double tmp1, tmp2, tmp3 = 0.0, tmp4;
-        dd::sub(C[i], tmp3, C1[i], C2[i], tmp1, tmp2);
-        dd::div(tmp1, tmp2, C1[i], C2[i], tmp3, tmp4);
-        C[i] = std::fabs(tmp3);
-    }
-
-    std::sort(C, C + sizeC);
-    err1 = C[sizeC - 1];
-    err2 = (sizeC & 1) ? C[sizeC / 2] : ((C[sizeC / 2] + C[sizeC / 2 - 1]) * 0.5);
+__global__ void gemm_err_kernel(const size_t m,
+                                const size_t n,
+                                float *const __restrict__ C,             // calculated value
+                                const double *const __restrict__ C_exact // true value
+) {
+    const size_t idx = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (idx >= m * n) return;
+    double2 gap = dd::sub(double(C[idx]), C_exact[idx]);
+    double2 err = dd::div(gap, C_exact[idx]);
+    C[idx]      = static_cast<float>(fabs(err.x));
 }
 
-void gemm_err(const size_t m,
-              const size_t n,
-              float *const C,         // calculated value
-              const double *const C1, // true value
-              double &err1,           // max
-              double &err2)           // median
-{
-    size_t sizeC = m * n;
-
-#pragma omp parallel for
-    for (size_t i = 0; i < sizeC; i++) {
-        double tmp = (double(C[i]) - C1[i]) / C1[i];
-        C[i]       = float(std::fabs(tmp));
-    }
-
-    std::sort(C, C + sizeC);
-    err1 = double(C[sizeC - 1]);
-    err2 = (sizeC & 1) ? double(C[sizeC / 2]) : ((double(C[sizeC / 2]) + double(C[sizeC / 2 - 1])) * 0.5);
+__global__ void gemm_err_kernel(const size_t m,
+                                const size_t n,
+                                double *const __restrict__ C,             // calculated value
+                                const double2 *const __restrict__ C_exact // true value
+) {
+    const size_t idx = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (idx >= m * n) return;
+    double2 gap = dd::sub(C[idx], C_exact[idx]);
+    double2 err = dd::div(gap, C_exact[idx]);
+    C[idx]      = fabs(err.x);
 }
 
-void gemm_err(const size_t m,
-              const size_t n,
-              cuDoubleComplex *const C,        // calculated value
-              const cuDoubleComplex *const C1, // true value
-              const cuDoubleComplex *const C2, // true value
-              double &err1,                    // max
-              double &err2)                    // median
-{
-    size_t sizeC = m * n;
-
-#pragma omp parallel for
-    for (size_t i = 0; i < sizeC; i++) {
-        double tmp1, tmp2, tmp3, tmp4, res1, res2;
-        tmp3 = 0.0;
-        dd::sub(cuCreal(C[i]), tmp3, cuCreal(C1[i]), cuCreal(C2[i]), tmp1, tmp2);
-        dd::div(tmp1, tmp2, cuCreal(C1[i]), cuCreal(C2[i]), res1, tmp4);
-
-        tmp3 = 0.0;
-        dd::sub(cuCimag(C[i]), tmp3, cuCimag(C1[i]), cuCimag(C2[i]), tmp1, tmp2);
-        dd::div(tmp1, tmp2, cuCimag(C1[i]), cuCimag(C2[i]), res2, tmp4);
-
-        res1 = std::fabs(res1);
-        res2 = std::fabs(res2);
-        C[i] = make_cuDoubleComplex(res1, res2);
-    }
-
-    double *D    = reinterpret_cast<double *>(C);
-    size_t sizeD = sizeC * 2;
-    std::sort(D, D + sizeD);
-    err1 = D[sizeD - 1];
-    err2 = (sizeD & 1) ? D[sizeD / 2] : ((D[sizeD / 2] + D[sizeD / 2 - 1]) * 0.5);
+__global__ void gemm_err_kernel(const size_t m,
+                                const size_t n,
+                                cuFloatComplex *const __restrict__ C,             // calculated value
+                                const cuDoubleComplex *const __restrict__ C_exact // true value
+) {
+    const size_t idx = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (idx >= m * n) return;
+    double2 gap_r = dd::sub(double(C[idx].x), C_exact[idx].x);
+    double2 gap_i = dd::sub(double(C[idx].y), C_exact[idx].y);
+    double2 err_r = dd::div(gap_r, C_exact[idx].x);
+    double2 err_i = dd::div(gap_i, C_exact[idx].y);
+    C[idx]        = {static_cast<float>(fabs(err_r.x)), static_cast<float>(fabs(err_i.x))};
 }
 
-void gemm_err(const size_t m,
-              const size_t n,
-              cuComplex *const C,              // calculated value
-              const cuDoubleComplex *const C1, // true value
-              double &err1,                    // max
-              double &err2)                    // median
-{
-    size_t sizeC = m * n;
+__global__ void gemm_err_kernel(const size_t m,
+                                const size_t n,
+                                cuDoubleComplex *const __restrict__ C,                      // calculated value
+                                const eval::dd::double2_complex *const __restrict__ C_exact // true value
+) {
+    const size_t idx = size_t(blockIdx.x) * blockDim.x + threadIdx.x;
+    if (idx >= m * n) return;
+    double2 gap_r = dd::sub(double(C[idx].x), C_exact[idx].x);
+    double2 gap_i = dd::sub(double(C[idx].y), C_exact[idx].y);
+    double2 err_r = dd::div(gap_r, C_exact[idx].x);
+    double2 err_i = dd::div(gap_i, C_exact[idx].y);
+    C[idx]        = {static_cast<double>(fabs(err_r.x)), static_cast<double>(fabs(err_i.x))};
+}
 
-#pragma omp parallel for
-    for (size_t i = 0; i < sizeC; i++) {
-        double res1 = (double(cuCrealf(C[i])) - cuCreal(C1[i])) / cuCreal(C1[i]);
-        double res2 = (double(cuCimagf(C[i])) - cuCimag(C1[i])) / cuCimag(C1[i]);
-
-        res1 = float(std::fabs(res1));
-        res2 = float(std::fabs(res2));
-        C[i] = make_cuComplex(res1, res2);
+template <typename T_lo, typename T_hi>
+double2 gemm_err(const size_t m,
+                 const size_t n,
+                 T_lo *const C,            // calculated value
+                 const T_hi *const C_exact // true value
+) {
+    cudaDeviceSynchronize();
+    gemm_err_kernel<<<(m * n + 255) / 256, 256>>>(m, n, C, C_exact);
+    if constexpr (std::is_same_v<T_lo, cuDoubleComplex> || std::is_same_v<T_lo, cuFloatComplex>) {
+        size_t sizeC = m * n * 2;
+        using U      = std::conditional_t<(std::is_same_v<T_lo, cuDoubleComplex>), double, float>;
+        std::vector<U> hC(sizeC);
+        cudaMemcpy(hC.data(), C, sizeC * sizeof(U), cudaMemcpyDeviceToHost);
+        std::sort(hC.begin(), hC.end());
+        double err1 = double(hC[sizeC - 1]);
+        double err2 = (sizeC & 1) ? double(hC[sizeC / 2]) : ((double(hC[sizeC / 2]) + double(hC[sizeC / 2 - 1])) * 0.5);
+        return {err1, err2};
+    } else {
+        size_t sizeC = m * n;
+        std::vector<T_lo> hC(sizeC);
+        cudaMemcpy(hC.data(), C, sizeC * sizeof(T_lo), cudaMemcpyDeviceToHost);
+        std::sort(hC.begin(), hC.end());
+        double err1 = double(hC[sizeC - 1]);
+        double err2 = (sizeC & 1) ? double(hC[sizeC / 2]) : ((double(hC[sizeC / 2]) + double(hC[sizeC / 2 - 1])) * 0.5);
+        return {err1, err2};
     }
-
-    float *D     = reinterpret_cast<float *>(C);
-    size_t sizeD = sizeC * 2;
-    std::sort(D, D + sizeD);
-    err1 = double(D[sizeD - 1]);
-    err2 = (sizeD & 1) ? double(D[sizeD / 2]) : ((double(D[sizeD / 2]) + double(D[sizeD / 2 - 1])) * 0.5);
 }
 
 } // namespace err
-
-void data_analysis(const size_t m,
-                   const size_t n,
-                   cuDoubleComplex *A,
-                   double &maxA,
-                   double &minA,
-                   double &medA,       //
-                   double &quartile1A, //
-                   double &quartile3A  //
-) {
-    size_t sizeD = m * n * 2;
-    double *D    = reinterpret_cast<double *>(A);
-    std::sort(D, D + sizeD, [](double a, double b) {
-        return std::abs(a) < std::abs(b);
-    });
-    maxA       = std::abs(D[sizeD - 1]);
-    medA       = std::abs(D[sizeD / 2]);
-    minA       = std::abs(D[0]);
-    quartile1A = std::abs(D[sizeD / 4]);
-    quartile3A = std::abs(D[sizeD * 3 / 4]);
-}
-
-void data_analysis(const size_t m,
-                   const size_t n,
-                   double *A,
-                   double &maxA,
-                   double &minA,
-                   double &medA,       //
-                   double &quartile1A, //
-                   double &quartile3A  //
-) {
-    size_t sizeD = m * n;
-    double *D    = A;
-    std::sort(D, D + sizeD, [](double a, double b) {
-        return std::abs(a) < std::abs(b);
-    });
-    maxA       = std::abs(D[sizeD - 1]);
-    medA       = std::abs(D[sizeD / 2]);
-    minA       = std::abs(D[0]);
-    quartile1A = std::abs(D[sizeD / 4]);
-    quartile3A = std::abs(D[sizeD * 3 / 4]);
-}
 
 } // namespace eval

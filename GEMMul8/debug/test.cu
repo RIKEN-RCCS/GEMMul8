@@ -1,24 +1,50 @@
 #include "gemmul8.hpp"
 #include <cuComplex.h>
+#include <cublasLt.h>
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <iomanip>
 #include <iostream>
 #include <vector>
+#include <random>
 
 //
 //
 //==========
-int imax                            = 5;
-int total_tests                     = 0;
-int idx_tests                       = 0;
-int nmin                            = 32;
-int nmax                            = 47;
+int imax        = 5;
+int total_tests = 0;
+int idx_tests   = 0;
+int nmin        = 32;
+int nmax        = 47;
+
+#if !defined(SEED)
+    #define SEED 9999
+#endif
+
+inline constexpr uint32_t seed = SEED;
+
 std::vector<cublasOperation_t> opsA = {CUBLAS_OP_N, CUBLAS_OP_T, CUBLAS_OP_C};
 std::vector<cublasOperation_t> opsB = {CUBLAS_OP_N, CUBLAS_OP_T, CUBLAS_OP_C};
+
+#if defined(UseFP8)
+constexpr gemmul8::Backend backend = gemmul8::Backend::FP8;
+#else
+constexpr gemmul8::Backend backend = gemmul8::Backend::INT8;
+#endif
+
+#if defined(UseLT)
+    #define HANDLE_t      cublasLtHandle_t
+    #define HANDLECreate  cublasLtCreate
+    #define HANDLEDestroy cublasLtDestroy
+#else
+    #define HANDLE_t      cublasHandle_t
+    #define HANDLECreate  cublasCreate
+    #define HANDLEDestroy cublasDestroy
+#endif
 //==========
 //
 //
+
 __global__ void f2d_kernel(size_t sizeA, const float *const __restrict__ in, double *const __restrict__ out) {
     const auto idx = threadIdx.x + blockIdx.x * blockDim.x;
     if (idx >= sizeA) return;
@@ -58,20 +84,23 @@ void f2d(size_t m,                   // rows of A
 }
 
 template <typename T> void fill_random(T *data, int n) {
+    std::mt19937 mt(seed);
     for (int i = 0; i < n; ++i)
-        data[i] = static_cast<T>(rand()) / RAND_MAX;
+        data[i] = static_cast<T>(mt()) / RAND_MAX;
 }
 
 template <> void fill_random(cuComplex *data, int n) {
+    std::mt19937 mt(seed);
     for (int i = 0; i < n; ++i)
-        data[i] = make_cuComplex(static_cast<float>(rand()) / RAND_MAX,
-                                 static_cast<float>(rand()) / RAND_MAX);
+        data[i] = make_cuComplex(static_cast<float>(mt()) / RAND_MAX,
+                                 static_cast<float>(mt()) / RAND_MAX);
 }
 
 template <> void fill_random(cuDoubleComplex *data, int n) {
+    std::mt19937 mt(seed);
     for (int i = 0; i < n; ++i)
-        data[i] = make_cuDoubleComplex(static_cast<double>(rand()) / RAND_MAX,
-                                       static_cast<double>(rand()) / RAND_MAX);
+        data[i] = make_cuDoubleComplex(static_cast<double>(mt()) / RAND_MAX,
+                                       static_cast<double>(mt()) / RAND_MAX);
 }
 
 template <typename T> struct Tconst {
@@ -111,6 +140,20 @@ template <> struct Tconst<cuFloatComplex> {
     };
 };
 
+template <typename T>
+__global__ void ones_kernel(int64_t n, T *__restrict__ x) {
+    const auto idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    x[idx] = Tconst<T>::alpha[4];
+}
+
+template <typename T>
+__forceinline__ void ones(int64_t m, int64_t n, T *x) {
+    constexpr size_t block_size = 256;
+    const size_t grid_size      = (m * n + block_size - 1) / block_size;
+    ones_kernel<T><<<grid_size, block_size>>>(m * n, x);
+}
+
 template <typename T> inline constexpr bool isComplex = (std::is_same_v<T, cuComplex> || std::is_same_v<T, cuDoubleComplex>);
 template <typename T> inline constexpr bool isFloat   = (std::is_same_v<T, float> || std::is_same_v<T, cuComplex>);
 
@@ -148,7 +191,8 @@ const char *op_to_char(cublasOperation_t op) {
     }
 }
 
-template <typename T> void run_gemm(cublasHandle_t handle,
+template <typename T> void run_gemm(HANDLE_t handle,
+                                    cublasHandle_t handle_gemm,
                                     int m,
                                     int n,
                                     int k,
@@ -185,22 +229,22 @@ template <typename T> void run_gemm(cublasHandle_t handle,
     cudaDeviceSynchronize();
     if constexpr (std::is_same_v<T, float>) {
         cudaMemcpy(dC1, hC1, sizeof(T) * sizeC, cudaMemcpyHostToDevice);
-        cublasSgemm(handle, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
+        cublasSgemm(handle_gemm, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
     } else if constexpr (std::is_same_v<T, double>) {
         cudaMemcpy(dC1, hC1, sizeof(T) * sizeC, cudaMemcpyHostToDevice);
-        cublasDgemm(handle, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
+        cublasDgemm(handle_gemm, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
     } else if constexpr (std::is_same_v<T, cuComplex>) {
         cudaMemcpy(dC1, hC1, sizeof(T) * sizeC, cudaMemcpyHostToDevice);
-        cublasCgemm(handle, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
+        cublasCgemm(handle_gemm, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
     } else {
         cudaMemcpy(dC1, hC1, sizeof(T) * sizeC, cudaMemcpyHostToDevice);
-        cublasZgemm(handle, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
+        cublasZgemm(handle_gemm, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC1, m);
     }
 
     std::vector<T> hC3(sizeC), hC4(sizeC);
     cudaMemcpy(hC3.data(), dC1, sizeof(T) * sizeC, cudaMemcpyDeviceToHost);
 
-    const unsigned num_moduli_start = 7u;
+    const unsigned num_moduli_start = (std::is_same_v<T, float> || std::is_same_v<T, cuComplex>) ? 6u : 7u;
     const unsigned num_moduli_end   = (std::is_same_v<T, float> || std::is_same_v<T, cuComplex>) ? 15u : 20u;
 
     bool breakflag = true;
@@ -209,7 +253,7 @@ template <typename T> void run_gemm(cublasHandle_t handle,
         for (unsigned num_moduli = num_moduli_start; num_moduli < num_moduli_end; ++num_moduli) {
             cudaMemcpy(dC2, hC1, sizeof(T) * sizeC, cudaMemcpyHostToDevice);
             cudaDeviceSynchronize();
-            gemmul8::gemm<T>(handle, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC2, m, num_moduli, fastmode, work);
+            gemmul8::gemm<T, backend>(handle, transa, transb, m, n, k, &alpha, dA, (transa == CUBLAS_OP_N ? m : k), dB, (transb == CUBLAS_OP_N ? k : n), &beta, dC2, m, num_moduli, fastmode, work);
             cudaDeviceSynchronize();
             cudaMemcpy(hC4.data(), dC2, sizeof(T) * sizeC, cudaMemcpyDeviceToHost);
 
@@ -276,8 +320,10 @@ int main() {
 
     srand(0);
     cudaSetDevice(0);
-    cublasHandle_t handle;
-    cublasCreate(&handle);
+    HANDLE_t handle;
+    HANDLECreate(&handle);
+    cublasHandle_t handle_gemm;
+    cublasCreate(&handle_gemm);
 
     const int maxsize = nmax * nmax;
 
@@ -297,7 +343,7 @@ int main() {
         cudaMemcpy(dA, hA.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
         cudaMemcpy(dB, hB.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
 
-        const size_t worksize = gemmul8::workSize<isComplex<Type>>(47, 47, 47, 20u);
+        const size_t worksize = gemmul8::workSize<isComplex<Type>, backend>(maxsize, maxsize, maxsize, 20u);
         void *work;
         cudaMalloc(&work, worksize);
 
@@ -311,10 +357,10 @@ int main() {
                         int k      = m;
                         if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         } else if (isComplex<Type>) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         }
                     }
 
@@ -341,7 +387,7 @@ int main() {
         cudaMemcpy(dA, hA.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
         cudaMemcpy(dB, hB.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
 
-        const size_t worksize = gemmul8::workSize<isComplex<Type>>(47, 47, 47, 20u);
+        const size_t worksize = gemmul8::workSize<isComplex<Type>, backend>(maxsize, maxsize, maxsize, 20u);
         void *work;
         cudaMalloc(&work, worksize);
 
@@ -355,10 +401,10 @@ int main() {
                         int k      = m;
                         if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         } else if (isComplex<Type>) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         }
                     }
 
@@ -385,7 +431,7 @@ int main() {
         cudaMemcpy(dA, hA.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
         cudaMemcpy(dB, hB.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
 
-        const size_t worksize = gemmul8::workSize<isComplex<Type>>(47, 47, 47, 20u);
+        const size_t worksize = gemmul8::workSize<isComplex<Type>, backend>(maxsize, maxsize, maxsize, 20u);
         void *work;
         cudaMalloc(&work, worksize);
 
@@ -399,10 +445,10 @@ int main() {
                         int k      = m;
                         if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         } else if (isComplex<Type>) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         }
                     }
 
@@ -429,7 +475,7 @@ int main() {
         cudaMemcpy(dA, hA.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
         cudaMemcpy(dB, hB.data(), sizeof(Type) * maxsize, cudaMemcpyHostToDevice);
 
-        const size_t worksize = gemmul8::workSize<isComplex<Type>>(47, 47, 47, 20u);
+        const size_t worksize = gemmul8::workSize<isComplex<Type>, backend>(maxsize, maxsize, maxsize, 20u);
         void *work;
         cudaMalloc(&work, worksize);
 
@@ -443,10 +489,10 @@ int main() {
                         int k      = m;
                         if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         } else if (isComplex<Type>) {
                             idx_tests++;
-                            run_gemm<Type>(handle, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
+                            run_gemm<Type>(handle, handle_gemm, m, n, k, transa, transb, alpha, beta, dA, dB, dC, dD, hC1.data(), work);
                         }
                     }
 
@@ -460,6 +506,7 @@ int main() {
 
     std::cout << std::endl;
     std::cout << std::endl;
-    cublasDestroy(handle);
+    HANDLEDestroy(handle);
+    cublasDestroy(handle_gemm);
     return 0;
 }

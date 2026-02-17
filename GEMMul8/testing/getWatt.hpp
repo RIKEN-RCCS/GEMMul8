@@ -103,9 +103,8 @@ std::vector<double> getWatt(const std::function<void(void)> func, const size_t m
                 func();
                 if (((++cnt) % 10) == 0) {
                     cudaDeviceSynchronize();
-                    const auto now = std::chrono::system_clock::now();
-                    const auto elapsed_time =
-                        std::chrono::duration_cast<std::chrono::microseconds>(now - start).count() * 1e-6;
+                    const auto now          = std::chrono::system_clock::now();
+                    const auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(now - start).count() * 1e-6;
                     if (elapsed_time > duration_time) {
                         break;
                     }

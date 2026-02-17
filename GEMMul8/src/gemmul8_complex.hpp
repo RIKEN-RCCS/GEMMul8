@@ -1,54 +1,45 @@
-#include "common.hpp"
-#include "conv_32i_2_8i_complex.hpp"
-#include "inverse_scaling_complex.hpp"
-#include "scaling_accu_complex.hpp"
-#include "scaling_fast_complex.hpp"
+#pragma once
 
-namespace oz2 {
 namespace complex {
 
 //------------------------------
 // Calculate required work size
 //------------------------------
-template <bool UseExtraWorkspace>
-__inline__ size_t workSize(
-    size_t m, size_t n, size_t k,
-    unsigned num_moduli,
-    bool enable_skip_scalA,
-    bool enable_skip_scalB,
-    size_t *workSizeA,
-    size_t *workSizeB //
+template <gemmul8::Backend backend>
+inline size_t workSize(
+    size_t m, size_t n, size_t k, unsigned num_moduli,
+    bool enable_skip_scalA, bool enable_skip_scalB,
+    size_t *workSizeA, size_t *workSizeB //
 ) {
-    const size_t lda8i     = padding(k);
-    const size_t cola8i    = padding(m);
-    const size_t sizeA     = lda8i * cola8i;
-    const size_t ldb8i     = lda8i;
-    const size_t colb8i    = n;
-    const size_t sizeB     = ldb8i * colb8i;
-    const size_t ldc32i    = cola8i;
-    const size_t colc32i   = colb8i;
-    const size_t sizeC     = ldc32i * colc32i;
-    const size_t size_vecA = cola8i;
+    const size_t lda_lo  = padding(k);
+    const size_t cola_lo = padding(m);
+    const size_t ldb_lo  = lda_lo;
+    const size_t colb_lo = n;
+    const size_t ldc_hi  = cola_lo;
+    const size_t colc_hi = colb_lo;
+
+    const size_t sizeA     = lda_lo * cola_lo;
+    const size_t sizeB     = ldb_lo * colb_lo;
+    const size_t sizeC     = ldc_hi * colc_hi;
+    const size_t size_vecA = cola_lo;
     const size_t size_vecB = padding(n);
 
-    const unsigned num_A8i  = (num_moduli + ((enable_skip_scalA) ? 1 : 0)) * 3; // +1 for skip_scalA in accurate mode
-    const unsigned num_B8i  = (num_moduli + ((enable_skip_scalB) ? 1 : 0)) * 3; // +1 for skip_scalB in accurate mode
-    const unsigned num_C8i  = num_moduli;
-    const unsigned num_C32i = 3;
+    const unsigned num_mat        = table::num_mat<backend>(num_moduli);
+    const unsigned num_A_lo       = (num_mat + ((enable_skip_scalA) ? 1 : 0)) * 3; // +1 for skip_scalA in accurate mode
+    const unsigned num_B_lo       = (num_mat + ((enable_skip_scalB) ? 1 : 0)) * 3; // +1 for skip_scalB in accurate mode
+    const unsigned num_C_mid      = num_moduli;
+    const unsigned num_C_hi       = ((backend == gemmul8::Backend::INT8) ? 1 : 3) * 3;
+    const size_t lwork_nativeGemm = size_t(1) << 25; // 32 MiB
 
-    size_t total_size_A = 0;
-    size_t total_size_B = 0;
-    size_t total_size_C = 0;
-    total_size_A += sizeof(int8_t) * sizeA * num_A8i;
+    size_t total_size_A = 255;
+    size_t total_size_B = 255;
+    size_t total_size_C = 255;
+    total_size_A += sizeof(low_t<backend>) * sizeA * num_A_lo;
     total_size_A += sizeof(int16_t) * size_vecA;
-    total_size_B += sizeof(int8_t) * sizeB * num_B8i;
+    total_size_B += sizeof(low_t<backend>) * sizeB * num_B_lo;
     total_size_B += sizeof(int16_t) * size_vecB;
-    if constexpr (UseExtraWorkspace) {
-        total_size_C += sizeof(int32_t) * sizeC * num_C32i * num_moduli;
-    } else {
-        total_size_C += sizeof(char2) * sizeC * num_C8i;
-        total_size_C += sizeof(int32_t) * sizeC * num_C32i;
-    }
+    total_size_C += sizeof(midx2_t<backend>) * sizeC * (num_C_mid - 1) + std::max(lwork_nativeGemm, sizeof(midx2_t<backend>) * sizeC);
+    total_size_C += sizeof(hi_t<backend>) * sizeC * num_C_hi;
 
     if (workSizeA != nullptr) *workSizeA = total_size_A;
     if (workSizeB != nullptr) *workSizeB = total_size_B;
@@ -58,25 +49,17 @@ __inline__ size_t workSize(
 //------------------------------
 // GEMM emulation using INT8 Tensor Cores
 //------------------------------
-template <typename T, bool UseExtraWorkspace>
-__inline__ std::vector<double> gemm(
-    cublasHandle_t handle,
-    cublasOperation_t op_A, cublasOperation_t op_B,
+template <typename T, gemmul8::Backend backend>
+inline std::vector<double> gemm(
+    Handle_t handle, cublasOperation_t op_A, cublasOperation_t op_B,
     size_t m, size_t n, size_t k,
-    const T *alpha,
-    const T *const A, size_t lda,
-    const T *const B, size_t ldb,
-    const T *beta,
-    T *const C, size_t ldc,
-    unsigned num_moduli,
-    bool fastmode,
-    void *const work,
-    void *const workA,
-    void *const workB,
-    bool enable_skip_scalA,
-    bool enable_skip_scalB,
-    bool skip_scalA,
-    bool skip_scalB //
+    const T *alpha, const T *const A, size_t lda, const T *const B, size_t ldb,
+    const T *beta, T *const C, size_t ldc,
+    unsigned num_moduli, bool fastmode,
+    void *const work, void *const workA, void *const workB,
+    bool enable_skip_scalA, bool enable_skip_scalB,
+    bool skip_scalA, bool skip_scalB,
+    cudaStream_t stream //
 ) {
     //------------------------------
     // Timer
@@ -87,246 +70,159 @@ __inline__ std::vector<double> gemm(
     //------------------------------
     // Set constants
     //------------------------------
-    const size_t lda8i       = padding(k);
-    const size_t ldb8i       = lda8i;
-    const size_t ldc32i      = padding(m);
-    const size_t sizeA       = lda8i * ldc32i;
-    const size_t sizeB       = ldb8i * n;
-    const size_t sizeC       = ldc32i * n;
-    const size_t sizeC_4     = sizeC >> 2;
-    const size_t size_vecA   = ldc32i;
-    const size_t size_vecB   = padding(n);
-    const size_t offsetA     = sizeA * num_moduli;
-    const size_t offsetB     = sizeB * num_moduli;
-    const unsigned table_idx = num_moduli - 2;
-    const bool skipA         = skip_scalA && enable_skip_scalA;
-    const bool skipB         = skip_scalB && enable_skip_scalB;
-    constexpr int32_t one    = 1;
-    constexpr int32_t zero   = 0;
-    grid_invscal             = (m * n + threads_invscal - 1) / threads_invscal;
-    if constexpr (!UseExtraWorkspace) {
-        grid_conv32i8i = (sizeC_4 + threads_conv32i8i - 1) / threads_conv32i8i;
-    }
-    bool P_is_double;
+    const size_t lda_lo          = padding(k);
+    const size_t ldb_lo          = lda_lo;
+    const size_t ldc_hi          = padding(m);
+    const size_t sizeA           = lda_lo * ldc_hi;
+    const size_t sizeB           = ldb_lo * n;
+    const size_t sizeC           = ldc_hi * n;
+    const size_t sizeC_4         = sizeC >> 2;
+    const size_t size_vecA       = ldc_hi;
+    const size_t size_vecB       = padding(n);
+    const bool skipA             = skip_scalA && enable_skip_scalA;
+    const bool skipB             = skip_scalB && enable_skip_scalB;
+    constexpr hi_t<backend> one  = 1;
+    constexpr hi_t<backend> zero = 0;
 
     //------------------------------
     // Set constant memory
     //------------------------------
-    if constexpr (std::is_same_v<underlying_t<T>, double>) {
-        P_is_double = (num_moduli <= 7);
-        if (P_is_double) {
-            cudaMemcpyToSymbol(table::qPi, &table::qPi_1[table_idx][0], num_moduli * sizeof(double));
-        } else {
-            cudaMemcpyToSymbol(table::qPi, &table::qPi_2[num_moduli - 8][0][0], 2 * num_moduli * sizeof(double));
-        }
-        cudaMemcpyToSymbol(table::MODULI_D, table::moduli_d, (num_moduli - 1) * sizeof(double2));
-    } else {
-        P_is_double = true;
-        cudaMemcpyToSymbol(table::qPi, &table::qPi_1[table_idx][0], num_moduli * sizeof(double));
-    }
-    cudaMemcpyToSymbol(table::MODULI_F, table::moduli_f, (num_moduli - 1) * sizeof(float2));
-    cudaMemcpyToSymbol(table::MODULI_I, table::moduli_i, (num_moduli - 1) * sizeof(int2));
+    table::upload_constants<backend>(stream);
 
     //------------------------------
     // Set workspace
     //------------------------------
-    int8_t *const A8i_1 = reinterpret_cast<int8_t *>((workA) ? workA : work);
-    int8_t *const A8i_2 = A8i_1 + offsetA;
-    int8_t *const A8i_3 = A8i_2 + offsetA;
-    int16_t *const sftA = reinterpret_cast<int16_t *>(A8i_3 + offsetA + ((enable_skip_scalA) ? (sizeA * 3) : 0));
-    int8_t *const B8i_1 = reinterpret_cast<int8_t *>((workB) ? workB : ((workA) ? work : (sftA + size_vecA)));
-    int8_t *const B8i_2 = B8i_1 + offsetB;
-    int8_t *const B8i_3 = B8i_2 + offsetB;
-    int16_t *const sftB = reinterpret_cast<int16_t *>(B8i_3 + offsetB + ((enable_skip_scalB) ? (sizeB * 3) : 0));
-    char2 *C8i_tmp;
-    int32_t *C32i_1_tmp, *C32i_2_tmp, *C32i_3_tmp;
-    if constexpr (UseExtraWorkspace) {
-        C8i_tmp    = nullptr;
-        C32i_1_tmp = reinterpret_cast<int32_t *>((workB) ? ((workA) ? work : (sftA + size_vecA)) : (sftB + size_vecB));
-        C32i_2_tmp = C32i_1_tmp + sizeC * num_moduli;
-        C32i_3_tmp = C32i_2_tmp + sizeC * num_moduli;
-    } else {
-        C8i_tmp    = reinterpret_cast<char2 *>((workB) ? ((workA) ? work : (sftA + size_vecA)) : (sftB + size_vecB));
-        C32i_1_tmp = reinterpret_cast<int32_t *>(C8i_tmp + sizeC * num_moduli);
-        C32i_2_tmp = C32i_1_tmp + sizeC;
-        C32i_3_tmp = C32i_2_tmp + sizeC;
-    }
-    char2 *const C8i       = C8i_tmp;
-    int32_t *const C32i_1  = C32i_1_tmp;
-    int32_t *const C32i_2  = C32i_2_tmp;
-    int32_t *const C32i_3  = C32i_3_tmp;
-    int8_t *const A8i[3]   = {A8i_1, A8i_2, A8i_3};
-    int8_t *const B8i[3]   = {B8i_1, B8i_2, B8i_3};
-    int32_t *const C32i[3] = {C32i_1, C32i_2, C32i_3};
+    const size_t lwork_nativeGemm = size_t(1) << 25; // 32 MiB
+    const size_t offsetA          = sizeA * table::num_mat<backend>(num_moduli);
+    const size_t offsetB          = sizeB * table::num_mat<backend>(num_moduli);
+    const size_t offsetC          = sizeC * ((backend == gemmul8::Backend::INT8) ? 1 : 3);
+    void *work_aligned            = align256(work);
+    void *workA_aligned           = align256(workA);
+    void *workB_aligned           = align256(workB);
+    low_t<backend> *const A_lo_1  = reinterpret_cast<low_t<backend> *>((workA_aligned) ? workA_aligned : work_aligned);
+    low_t<backend> *const A_lo_2  = A_lo_1 + offsetA;
+    low_t<backend> *const A_lo_3  = A_lo_2 + offsetA;
+    int16_t *const sftA           = reinterpret_cast<int16_t *>(A_lo_3 + offsetA + ((enable_skip_scalA) ? (sizeA * 3) : 0));
+    low_t<backend> *const B_lo_1  = reinterpret_cast<low_t<backend> *>((workB_aligned) ? workB_aligned : ((workA_aligned) ? work_aligned : (sftA + size_vecA)));
+    low_t<backend> *const B_lo_2  = B_lo_1 + offsetB;
+    low_t<backend> *const B_lo_3  = B_lo_2 + offsetB;
+    int16_t *const sftB           = reinterpret_cast<int16_t *>(B_lo_3 + offsetB + ((enable_skip_scalB) ? (sizeB * 3) : 0));
+    midx2_t<backend> *const C_mid = reinterpret_cast<midx2_t<backend> *>((workB_aligned) ? ((workA_aligned) ? work_aligned : (sftA + size_vecA)) : (sftB + size_vecB));
+    void *work_nativeGemm         = reinterpret_cast<void *>(C_mid + (num_moduli - 1) * sizeC);
+    hi_t<backend> *const C_hi_1   = reinterpret_cast<hi_t<backend> *>(static_cast<int8_t *>(work_nativeGemm) + std::max(lwork_nativeGemm, sizeof(midx2_t<backend>) * sizeC));
+    hi_t<backend> *const C_hi_2   = C_hi_1 + offsetC;
+    hi_t<backend> *const C_hi_3   = C_hi_2 + offsetC;
+    low_t<backend> *const A_lo[3] = {A_lo_1, A_lo_2, A_lo_3};
+    low_t<backend> *const B_lo[3] = {B_lo_1, B_lo_2, B_lo_3};
+    hi_t<backend> *const C_hi[3]  = {C_hi_1, C_hi_2, C_hi_3};
+
+    //------------------------------
+    // Set handle
+    //------------------------------
+    set_handle<backend>(stream, handle, ldc_hi, n, lda_lo, ldb_lo, ldb_lo, ldc_hi, work_nativeGemm, lwork_nativeGemm);
 
     //------------------------------
     // Scaling
     // A =: diag(2^sftA) * A', A' is integer
     // B =: B' * diag(2^sftB), B' is integer
     // Then, calculating mod for all moduli
-    // A8i := A' - p[i]*round(A'/p[i])  (-128 <= A8i <= 127)
-    // B8i := B' - p[i]*round(B'/p[i])  (-128 <= A8i <= 127)
+    // A_lo := A' - p[i]*round(A'/p[i])  (A_lo is INT8 or 2*FP8)
+    // B_lo := B' - p[i]*round(B'/p[i])  (B_lo is INT8 or 2*FP8)
     //------------------------------
-    timing(time_stamp);
+    timing(stream, time_stamp);
     if (!(skipA && skipB)) {
         // When both scalingA & scalingB are skipped, this is skiped.
         if (fastmode) {
-            fast::scaling<T>(op_A, op_B, m, n, k, num_moduli,
-                             A, lda, A8i, lda8i, sizeA, sftA,
-                             B, ldb, B8i, ldb8i, sizeB, sftB,
-                             table_idx, skipA, skipB);
+            fast::scaling<backend, T>(stream, op_A, op_B, m, n, k, num_moduli,
+                                      A, lda, A_lo, lda_lo, sizeA, sftA,
+                                      B, ldb, B_lo, ldb_lo, sizeB, sftB,
+                                      skipA, skipB);
         } else {
-            int8_t *const A8i_high_1  = ((enable_skip_scalA) ? (A8i_3 + offsetA) : A8i_1);
-            int8_t *const B8i_high_1  = ((enable_skip_scalB) ? (B8i_3 + offsetB) : B8i_1);
-            int8_t *const A8i_high[3] = {A8i_high_1, A8i_high_1 + sizeA, A8i_high_1 + sizeA * 2};
-            int8_t *const B8i_high[3] = {B8i_high_1, B8i_high_1 + sizeB, B8i_high_1 + sizeB * 2};
-            accu::scaling<T>(handle, op_A, op_B, m, n, k, num_moduli,
-                             A, lda, A8i, A8i_high, lda8i, sizeA, sftA,
-                             B, ldb, B8i, B8i_high, ldb8i, sizeB, sftB,
-                             C32i, ldc32i,
-                             table_idx, skipA, skipB);
+            low_t<backend> *const A_lo_high_1  = ((enable_skip_scalA) ? (A_lo_3 + offsetA) : A_lo_1);
+            low_t<backend> *const B_lo_high_1  = ((enable_skip_scalB) ? (B_lo_3 + offsetB) : B_lo_1);
+            low_t<backend> *const A_lo_high[3] = {A_lo_high_1, A_lo_high_1 + sizeA, A_lo_high_1 + sizeA * 2};
+            low_t<backend> *const B_lo_high[3] = {B_lo_high_1, B_lo_high_1 + sizeB, B_lo_high_1 + sizeB * 2};
+            accu::scaling<backend, T>(stream, handle, op_A, op_B, m, n, k, num_moduli,
+                                      A, lda, A_lo, A_lo_high, lda_lo, sizeA, sftA,
+                                      B, ldb, B_lo, B_lo_high, ldb_lo, sizeB, sftB,
+                                      C_hi, ldc_hi,
+                                      skipA, skipB);
         }
     }
-    timing(time_stamp, timer[0]);
+    timing(stream, time_stamp, timer[0]);
 
-    if constexpr (UseExtraWorkspace) {
-
-        for (unsigned i = 0; i < num_moduli; ++i) {
-            //-----------------------------
-            // Error-free matrix multiplication
-            // C32i := A8i*B8i
-            //------------------------------
-
-            int blk    = 8192;
-            int rem    = n;
-            int offset = 0;
-
-            while (rem > 0) {
-                size_t nn = (rem <= 12288) ? rem : blk;
-
-                // Re(A)*Re(B)
-                cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                             ldc32i, nn, lda8i,
-                             &one,
-                             A8i[0] + i * sizeA, CUDA_R_8I, lda8i,
-                             B8i[0] + i * sizeB + offset * ldb8i, CUDA_R_8I, ldb8i,
-                             &zero,
-                             C32i[0] + i * sizeC + offset * ldc32i, CUDA_R_32I, ldc32i,
-                             CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
-
-                // Im(A)*Im(B)
-                cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                             ldc32i, nn, lda8i,
-                             &one,
-                             A8i[1] + i * sizeA, CUDA_R_8I, lda8i,
-                             B8i[1] + i * sizeB + offset * ldb8i, CUDA_R_8I, ldb8i,
-                             &zero,
-                             C32i[1] + i * sizeC + offset * ldc32i, CUDA_R_32I, ldc32i,
-                             CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
-
-                // (Re(A)+Im(A)) * (Re(B)+Im(B))
-                cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                             ldc32i, nn, lda8i,
-                             &one,
-                             A8i[2] + i * sizeA, CUDA_R_8I, lda8i,
-                             B8i[2] + i * sizeB + offset * ldb8i, CUDA_R_8I, ldb8i,
-                             &zero,
-                             C32i[2] + i * sizeC + offset * ldc32i, CUDA_R_32I, ldc32i,
-                             CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
-
-                offset += nn;
-                rem -= nn;
+    low_t<backend> *Ar = A_lo[0], *Ai = A_lo[1], *Ari = A_lo[2];
+    low_t<backend> *Br = B_lo[0], *Bi = B_lo[1], *Bri = B_lo[2];
+    hi_t<backend> *Cr = C_hi[0], *Ci = C_hi[1], *Cri = C_hi[2];
+    for (unsigned i = 0; i < num_moduli; ++i) {
+        //-----------------------------
+        // Error-free matrix multiplication
+        // C_hi := A_lo*B_lo
+        //------------------------------
+        if constexpr (backend == gemmul8::Backend::INT8) {
+            gemm_low_prec_i8x3(
+                stream, handle, ldc_hi, n, lda_lo,
+                &one, &one, &one, Ar, Ai, Ari, lda_lo, Br, Bi, Bri, ldb_lo,
+                &zero, &zero, &zero, Cr, Ci, Cri, ldc_hi);
+            Ar += sizeA;
+            Ai += sizeA;
+            Ari += sizeA;
+            Br += sizeB;
+            Bi += sizeB;
+            Bri += sizeB;
+        } else {
+            if (i < table::not_Karatsuba) {
+                low_t<backend> *Ax9[9] = {Ar, Ar + sizeA, Ar + sizeA, Ai, Ai + sizeA, Ai + sizeA, Ari, Ari + sizeA, Ari + sizeA};
+                low_t<backend> *Bx9[9] = {Br + sizeB, Br, Br + sizeB, Bi + sizeB, Bi, Bi + sizeB, Bri + sizeB, Bri, Bri + sizeB};
+                hi_t<backend> *Cx9[9]  = {Cr, Cr + sizeC, Cr + 2 * sizeC, Ci, Ci + sizeC, Ci + 2 * sizeC, Cri, Cri + sizeC, Cri + 2 * sizeC};
+                gemm_low_prec_f8x9(stream, handle, ldc_hi, n, lda_lo, &one, Ax9, lda_lo, Bx9, ldb_lo, &zero, Cx9, ldc_hi);
+                Ar += 2 * sizeA;
+                Ai += 2 * sizeA;
+                Ari += 2 * sizeA;
+                Br += 2 * sizeB;
+                Bi += 2 * sizeB;
+                Bri += 2 * sizeB;
+            } else {
+                low_t<backend> *Ax9[9] = {Ar, Ar + sizeA, Ar + 2 * sizeA, Ai, Ai + sizeA, Ai + 2 * sizeA, Ari, Ari + sizeA, Ari + 2 * sizeA};
+                low_t<backend> *Bx9[9] = {Br, Br + sizeB, Br + 2 * sizeB, Bi, Bi + sizeB, Bi + 2 * sizeB, Bri, Bri + sizeB, Bri + 2 * sizeB};
+                hi_t<backend> *Cx9[9]  = {Cr, Cr + sizeC, Cr + 2 * sizeC, Ci, Ci + sizeC, Ci + 2 * sizeC, Cri, Cri + sizeC, Cri + 2 * sizeC};
+                gemm_low_prec_f8x9(stream, handle, ldc_hi, n, lda_lo, &one, Ax9, lda_lo, Bx9, ldb_lo, &zero, Cx9, ldc_hi);
+                Ar += 3 * sizeA;
+                Ai += 3 * sizeA;
+                Ari += 3 * sizeA;
+                Br += 3 * sizeB;
+                Bi += 3 * sizeB;
+                Bri += 3 * sizeB;
             }
-            timing(time_stamp, timer[1]);
         }
+        timing(stream, time_stamp, timer[1]);
 
         //------------------------------
-        // Accumulation and Inverse scaling
-        // C64f = sum(qi*Pi*C8i[i]),
-        //  where
-        //      Pi := P/p[i],
-        //      P  := prod(p[all]),
-        //      mod(qi*Pi, p[i]) \equiv 1.
-        // C := C64f - round(C64f/P)*P
-        // C := diag(2^sftA) * C * diag(2^sftB)
+        // Calculating mod
+        // C_mid[i] := C_hi - round(C_hi/p[i])*p[i]
         //------------------------------
-        inverse_scaling<T, const int32_t *const *const>(P_is_double, num_moduli, m, n, C32i, ldc32i, sizeC, C, ldc, sftA, sftB, *alpha, *beta);
-        timing(time_stamp, timer[3]);
-
-    } else {
-
-        for (unsigned i = 0; i < num_moduli; ++i) {
-            //-----------------------------
-            // Error-free matrix multiplication
-            // C32i := A8i*B8i
-            //------------------------------
-
-            int blk    = 8192;
-            int rem    = n;
-            int offset = 0;
-
-            while (rem > 0) {
-                size_t nn = (rem <= 12288) ? rem : blk;
-
-                // Re(A)*Re(B)
-                cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                             ldc32i, nn, lda8i,
-                             &one,
-                             A8i[0] + i * sizeA, CUDA_R_8I, lda8i,
-                             B8i[0] + i * sizeB + offset * ldb8i, CUDA_R_8I, ldb8i,
-                             &zero,
-                             C32i[0] + offset * ldc32i, CUDA_R_32I, ldc32i,
-                             CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
-
-                // Im(A)*Im(B)
-                cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                             ldc32i, nn, lda8i,
-                             &one,
-                             A8i[1] + i * sizeA, CUDA_R_8I, lda8i,
-                             B8i[1] + i * sizeB + offset * ldb8i, CUDA_R_8I, ldb8i,
-                             &zero,
-                             C32i[1] + offset * ldc32i, CUDA_R_32I, ldc32i,
-                             CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
-
-                // (Re(A)+Im(A)) * (Re(B)+Im(B))
-                cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                             ldc32i, nn, lda8i,
-                             &one,
-                             A8i[2] + i * sizeA, CUDA_R_8I, lda8i,
-                             B8i[2] + i * sizeB + offset * ldb8i, CUDA_R_8I, ldb8i,
-                             &zero,
-                             C32i[2] + offset * ldc32i, CUDA_R_32I, ldc32i,
-                             CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
-
-                offset += nn;
-                rem -= nn;
-            }
-            timing(time_stamp, timer[1]);
-
-            //------------------------------
-            // Calculating mod
-            // C8i[i] := C32i - round(C32i/p[i])*p[i]
-            //------------------------------
-            conv_32i_2_8i(i, sizeC_4, C32i, C8i + i * sizeC);
-            timing(time_stamp, timer[2]);
-        }
-
-        //------------------------------
-        // Accumulation and Inverse scaling
-        // C64f = sum(qi*Pi*C8i[i]),
-        //  where
-        //      Pi := P/p[i],
-        //      P  := prod(p[all]),
-        //      mod(qi*Pi, p[i]) \equiv 1.
-        // C := C64f - round(C64f/P)*P
-        // C := diag(2^sftA) * C * diag(2^sftB)
-        //------------------------------
-        inverse_scaling<T, const char2 *const>(P_is_double, num_moduli, m, n, C8i, ldc32i, sizeC, C, ldc, sftA, sftB, *alpha, *beta);
-        timing(time_stamp, timer[3]);
+        conv_hi2mid<backend>(stream, i, sizeC_4, C_hi, C_mid + i * sizeC);
+        timing(stream, time_stamp, timer[2]);
     }
 
+    //------------------------------
+    // Accumulation and Inverse scaling
+    // C64f = sum(qi*Pi*C_mid[i]),
+    //  where
+    //      Pi := P/p[i],
+    //      P  := prod(p[all]),
+    //      mod(qi*Pi, p[i]) \equiv 1.
+    // C := C64f - round(C64f/P)*P
+    // C := diag(2^sftA) * C * diag(2^sftB)
+    //------------------------------
+    inverse_scaling<backend, T>(stream, num_moduli, m, n, C_mid, ldc_hi, sizeC, C, ldc, sftA, sftB, alpha, beta);
+    timing(stream, time_stamp, timer[3]);
+
+    //------------------------------
+    // Clean up Lt memory
+    //------------------------------
+    cleanup_handle(handle);
     return timer;
 }
 
 } // namespace complex
-} // namespace oz2
