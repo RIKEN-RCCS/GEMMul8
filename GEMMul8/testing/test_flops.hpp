@@ -98,7 +98,7 @@ __inline__ void time_check(std::string &deviceName, std::string &dateTime) {
             sort(times.begin(), times.end());
             double time_med = (mainloop & 1) ? double(times[mainloop / 2]) : ((double(times[mainloop / 2]) + double(times[mainloop / 2 - 1])) * 0.5);
             time_med *= 1.e-3;
-            double TFLOPS = 2.0 * m * n * k / time_med * 1.0e-12;
+            double TFLOPS = 2.0 * m * n * k * ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) / time_med * 1.0e-12;
 
             outFile << phi << "," << m << "," << n << "," << k << "," << gemmTraits<T>::prefix_upper() << "GEMM" << ",";
             outFile << err_max << "," << err_med << "," << TFLOPS << "," << time_med << "," << "," << "," << "," << "," << std::endl;
@@ -149,7 +149,7 @@ __inline__ void time_check(std::string &deviceName, std::string &dateTime) {
             time1_med *= 1.e-9;
             time2_med *= 1.e-9;
             time3_med *= 1.e-9;
-            double TFLOPS = 2.0 * m * n * k / time_med * 1.0e-12;
+            double TFLOPS = 2.0 * m * n * k * ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) / time_med * 1.0e-12;
 
             outFile << phi << "," << m << "," << n << "," << k << "," << "OS2-fast-" << num_moduli << ",";
             outFile << err_max << "," << err_med << "," << TFLOPS << "," << time_med << ",";
@@ -202,7 +202,7 @@ __inline__ void time_check(std::string &deviceName, std::string &dateTime) {
             time1_med *= 1.e-9;
             time2_med *= 1.e-9;
             time3_med *= 1.e-9;
-            double TFLOPS = 2.0 * m * n * k / time_med * 1.0e-12;
+            double TFLOPS = 2.0 * m * n * k * ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) / time_med * 1.0e-12;
 
             outFile << phi << "," << m << "," << n << "," << k << "," << "OS2-accu-" << num_moduli << ",";
             outFile << err_max << "," << err_med << "," << TFLOPS << "," << time_med << ",";

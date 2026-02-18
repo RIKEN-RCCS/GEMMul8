@@ -114,7 +114,7 @@ template <> struct gemmTraits<cuDoubleComplex> {
 
 template <typename T>
 size_t max_size() {
-    size_t total_memory           = GPU_MEM_MB * 1e6;
+    size_t total_memory           = size_t(GPU_MEM_MB) * 1000000ULL;
     size_t n                      = 1024;
     using accu_t                  = typename gemmTraits<T>::ACCU_TYPE;
     const unsigned num_moduli_max = NUM_MODULI_MAX<T>;

@@ -93,9 +93,9 @@ __inline__ void watt_check(std::string &deviceName, std::string &dateTime) {
                 m, n, k);
 
             outFile << phi << "," << m << "," << n << "," << k << "," << gemmTraits<T>::prefix_upper() << "GEMM" << ",";
-            outFile << err_max << "," << err_med << "," << res[0] << "," << res[1] * 1.e-9 << "," << std::endl;
+            outFile << err_max << "," << err_med << "," << res[0] << "," << ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) * res[1] * 1.e-9 << "," << std::endl;
             std::cout << phi << "," << m << "," << n << "," << k << "," << gemmTraits<T>::prefix_upper() << "GEMM" << ",";
-            std::cout << err_max << "," << err_med << "," << res[0] << "," << res[1] * 1.e-9 << "," << std::endl;
+            std::cout << err_max << "," << err_med << "," << res[0] << "," << ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) * res[1] * 1.e-9 << "," << std::endl;
         }
 
         // fast mode
@@ -118,9 +118,9 @@ __inline__ void watt_check(std::string &deviceName, std::string &dateTime) {
                 m, n, k);
 
             outFile << phi << "," << m << "," << n << "," << k << "," << "OS2-fast-" << num_moduli << ",";
-            outFile << err_max << "," << err_med << "," << res[0] << "," << res[1] * 1.e-9 << "," << std::endl;
+            outFile << err_max << "," << err_med << "," << res[0] << "," << ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) * res[1] * 1.e-9 << "," << std::endl;
             std::cout << phi << "," << m << "," << n << "," << k << "," << "OS2-fast-" << num_moduli << ",";
-            std::cout << err_max << "," << err_med << "," << res[0] << "," << res[1] * 1.e-9 << "," << std::endl;
+            std::cout << err_max << "," << err_med << "," << res[0] << "," << ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) * res[1] * 1.e-9 << "," << std::endl;
         }
 
         // accu mode
@@ -143,9 +143,9 @@ __inline__ void watt_check(std::string &deviceName, std::string &dateTime) {
                 m, n, k);
 
             outFile << phi << "," << m << "," << n << "," << k << "," << "OS2-accu-" << num_moduli << ",";
-            outFile << err_max << "," << err_med << "," << res[0] << "," << res[1] * 1.e-9 << "," << std::endl;
+            outFile << err_max << "," << err_med << "," << res[0] << "," << ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) * res[1] * 1.e-9 << "," << std::endl;
             std::cout << phi << "," << m << "," << n << "," << k << "," << "OS2-accu-" << num_moduli << ",";
-            std::cout << err_max << "," << err_med << "," << res[0] << "," << res[1] * 1.e-9 << "," << std::endl;
+            std::cout << err_max << "," << err_med << "," << res[0] << "," << ((gemmTraits<T>::is_complex) ? 4.0 : 1.0) * res[1] * 1.e-9 << "," << std::endl;
         }
     }
 
