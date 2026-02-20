@@ -86,7 +86,7 @@ __forceinline__ __device__ float find_max(
     float *samax                          // shared memory (workspace)
 ) {
     // max in thread
-    const float ku = k * 0x1.0000000000000p-24F;
+    const float ku = (k + 1) * 0x1.0000000000000p-24F;
     float amax     = 0.0F;
     for (unsigned i = threadIdx.x; i < length; i += blockDim.x) {
         const float tmp = C_hi[i];
@@ -123,7 +123,7 @@ __forceinline__ __device__ float find_max_complex(
     float *samax                            // shared memory (workspace)
 ) {
     // max in thread
-    const float ku = k * 0x1.0000000000000p-24F;
+    const float ku = (k + 1) * 0x1.0000000000000p-24F;
     float amax     = 0.0F;
     for (unsigned i = threadIdx.x; i < length; i += blockDim.x) {
         const float ArBi           = C_hi_2[i];                            // Re(A)*Im(B)
@@ -171,7 +171,7 @@ __forceinline__ __device__ float find_max_tile(
     const size_t ldc,                     // leading dimension
     float samax[][TILE_DIM + 1]           // shared memory (workspace)
 ) {
-    const float ku = k * 0x1.0000000000000p-24F;
+    const float ku = (k + 1) * 0x1.0000000000000p-24F;
     float amax     = 0.0F;
     if (row_idx < m) {
         for (unsigned col = threadIdx.y; col < n; col += blockDim.y) {
@@ -225,7 +225,7 @@ __forceinline__ __device__ float find_max_tile_complex(
     const size_t lda,                       // leading dimension
     float samax[][TILE_DIM + 1]             // shared memory (workspace)
 ) {
-    const float ku = k * 0x1.0000000000000p-24F;
+    const float ku = (k + 1) * 0x1.0000000000000p-24F;
     float amax     = 0.0F;
     if (row_idx < m) {
         for (unsigned col = threadIdx.y; col < n; col += blockDim.y) {
