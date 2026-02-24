@@ -66,12 +66,13 @@ To rebuild from scratch, run `make clean && make -j8`.
 
 ### make options
 
-| Option      | Default           | Description                                                                                           |
-| :---------- | :---------------- | :---------------------------------------------------------------------------------------------------- |
-| `CUDA_PATH` | `/usr/local/cuda` | Path to your CUDA toolkit installation. Used for CUDA backends.                                       |
-| `HIP_PATH`  | `/opt/rocm`       | Path to your HIP (ROCm) toolkit installation. Used for HIP backends.                                  |
-| `BACKEND`   | `auto`            | Select GPU backend: `cuda`, `hip`, or `auto` (auto-detect).                                           |
-| `GPU_ARCH`  | `auto`            | Target GPU architecture.<br>Examples: `80` (A100), `90` (H100), `gfx90a` (MI250X), `gfx942` (MI300X). |
+| Option       | Default           | Description                                                                                           |
+| :----------- | :---------------- | :---------------------------------------------------------------------------------------------------- |
+| `CUDA_PATH`  | `/usr/local/cuda` | Path to your CUDA toolkit installation. Used for CUDA backends.                                       |
+| `HIP_PATH`   | `/opt/rocm`       | Path to your HIP (ROCm) toolkit installation. Used for HIP backends.                                  |
+| `BACKEND`    | `auto`            | Select GPU backend: `cuda`, `hip`, or `auto` (auto-detect).                                           |
+| `GPU_ARCH`   | `auto`            | Target GPU architecture.<br>Examples: `80` (A100), `90` (H100), `gfx90a` (MI250X), `gfx942` (MI300X). |
+| `GPU_MEM_MB` | `auto`            | The maximum (in MB) used in test programs                                                             |
 
 > [!NOTE]
 >

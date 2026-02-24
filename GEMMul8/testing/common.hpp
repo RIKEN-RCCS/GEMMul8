@@ -34,15 +34,14 @@ inline constexpr unsigned warmup          = 30;
 inline constexpr unsigned mainloop        = 30;
 inline constexpr unsigned long long seedA = 12345;
 inline constexpr unsigned long long seedB = 54321;
-inline constexpr gemmul8::Backend backend = gemmul8::Backend::FP8;
 std::vector<double> phi_list{0.0, 0.5, 1.0, 2.0, 4.0};
 template <typename T> inline constexpr unsigned NUM_MODULI_MIN        = 3;
-template <typename T> inline constexpr unsigned NUM_MODULI_MAX        = 10;
+template <typename T> inline constexpr unsigned NUM_MODULI_MAX        = 12;
 template <> inline constexpr unsigned NUM_MODULI_MIN<double>          = 9;
-template <> inline constexpr unsigned NUM_MODULI_MAX<double>          = 16;
+template <> inline constexpr unsigned NUM_MODULI_MAX<double>          = 18;
 template <> inline constexpr unsigned NUM_MODULI_MIN<cuDoubleComplex> = 9;
-template <> inline constexpr unsigned NUM_MODULI_MAX<cuDoubleComplex> = 16;
-std::vector<size_t> size_list{1024, 2048, 4096, 8192, 16384};
+template <> inline constexpr unsigned NUM_MODULI_MAX<cuDoubleComplex> = 18;
+inline constexpr size_t size_max = 65536;
 
 std::string getDeviceName() {
     cudaDeviceProp deviceProp;
@@ -65,6 +64,9 @@ std::string getCurrentDateTime(std::chrono::system_clock::time_point &now) {
 constexpr char ascii_upper(char c) {
     return ('a' <= c && c <= 'z') ? static_cast<char>(c - 'a' + 'A') : c;
 }
+
+template <gemmul8::Backend backend> inline constexpr char backendType = 'f';
+template <> inline constexpr char backendType<gemmul8::Backend::INT8> = 'i';
 
 template <typename T> struct gemmTraits;
 
@@ -111,25 +113,3 @@ template <> struct gemmTraits<cuDoubleComplex> {
     static constexpr cuDoubleComplex zero() { return cuDoubleComplex{0.0, 0.0}; }
     static constexpr char prefix_upper() { return ascii_upper(prefix); }
 };
-
-template <typename T>
-size_t max_size() {
-    size_t total_memory           = size_t(GPU_MEM_MB) * 1000000ULL;
-    size_t n                      = 1024;
-    using accu_t                  = typename gemmTraits<T>::ACCU_TYPE;
-    const unsigned num_moduli_max = NUM_MODULI_MAX<T>;
-    while (1) {
-        size_t size_mat   = n * n;
-        size_t lwork      = gemmul8::workSize<gemmTraits<T>::is_complex, backend>(n, n, n, num_moduli_max);
-        size_t total_work = 0;
-        total_work += 3 * size_mat * sizeof(T);
-        total_work += std::max(lwork, size_mat * sizeof(accu_t));
-        total_work += 256 * sizeof(accu_t); // for safety
-        if (total_work > total_memory) {
-            n -= 1024;
-            break;
-        }
-        n += 1024;
-    }
-    return std::min(*max_element(begin(size_list), end(size_list)), n);
-}

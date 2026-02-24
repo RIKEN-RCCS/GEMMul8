@@ -6,6 +6,7 @@ CUDA_PATH ?= /usr/local/cuda
 HIP_PATH ?= /opt/rocm
 BACKEND ?= auto
 GPU_ARCH ?= auto
+GPU_MEM_MB ?= auto
 
 
 #===============
@@ -78,7 +79,8 @@ MAKE_FLAGS := \
 CUDA_PATH=$(CUDA_PATH) \
 HIP_PATH=$(HIP_PATH) \
 BACKEND=$(BACKEND) \
-GPU_ARCH=$(GPU_ARCH)
+GPU_ARCH=$(GPU_ARCH) \
+GPU_MEM_MB=$(GPU_MEM_MB)
 
 
 #===============

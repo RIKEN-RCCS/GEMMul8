@@ -6,6 +6,7 @@ CUDA_PATH ?= /usr/local/cuda
 HIP_PATH ?= /opt/rocm
 BACKEND ?= auto
 GPU_ARCH ?= auto
+GPU_MEM_MB ?= auto
 
 
 #===============
@@ -33,7 +34,9 @@ ifeq ($(GPU_ARCH),auto)
 GPU_ARCH := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | tr -d '.')
 endif
 
+ifeq ($(GPU_MEM_MB),auto)
 GPU_MEM_MB := $(shell nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1)
+endif
 
 export PATH := $(CUDA_PATH)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(CUDA_PATH)/lib64:$(LD_LIBRARY_PATH)
@@ -59,7 +62,10 @@ endif
 
 export PATH := $(HIP_PATH)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(HIP_PATH)/lib:$(LD_LIBRARY_PATH)
+
+ifeq ($(GPU_MEM_MB),auto)
 GPU_MEM_MB := $(shell amd-smi static --vram --csv | awk -F, "NR==2 {print \$$4}")
+endif
 
 COMPILER := hipcc
 LIBS := -lamd_smi -lamdhip64 -lhipblas -lhipblaslt -ldl -Wl,../lib/libgemmul8.a

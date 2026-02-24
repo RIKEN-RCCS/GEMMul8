@@ -1,8 +1,8 @@
 #pragma once
 
-template <typename T>
+template <typename T, gemmul8::Backend backend = gemmul8::Backend::FP8>
 __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
-    std::string fileName = std::string("oz2_results_") + gemmTraits<T>::prefix + "_accuracy_" + deviceName + "_" + dateTime + ".csv";
+    std::string fileName = std::string("oz2_results_") + backendType<backend> + "_" + gemmTraits<T>::prefix + "_accuracy_" + deviceName + "_" + dateTime + ".csv";
     std::ofstream outFile(fileName);
 
     CHECK_CUDA(cudaSetDevice(0));
@@ -16,17 +16,15 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
 
     const size_t m = 128;
     const size_t n = 128;
-    const size_t k = *max_element(begin(size_list), end(size_list));
 
     const int64_t mi = static_cast<int64_t>(m);
     const int64_t ni = static_cast<int64_t>(n);
-    const int64_t ki = static_cast<int64_t>(k);
 
-    const size_t size_A           = m * k;
-    const size_t size_B           = k * n;
+    const size_t size_A           = m * size_max;
+    const size_t size_B           = size_max * n;
     const size_t size_C           = m * n;
     const unsigned num_moduli_max = NUM_MODULI_MAX<T>;
-    const size_t lwork            = gemmul8::workSize<gemmTraits<T>::is_complex, backend>(m, n, k, num_moduli_max);
+    const size_t lwork            = gemmul8::workSize<gemmTraits<T>::is_complex, backend>(m, n, size_max, num_moduli_max);
 
     using accu_t = typename gemmTraits<T>::ACCU_TYPE;
     T *A, *B, *C;
@@ -42,8 +40,8 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
     CHECK_CUDA(cudaMalloc(&work, std::max(lwork, size_C * sizeof(accu_t))));
     C_hi = reinterpret_cast<accu_t *>(work);
 
-    outFile << "phi,function,";
-    std::cout << "phi,function,";
+    outFile << "phi,k,function,";
+    std::cout << "phi,k,function,";
     for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
         outFile << num_moduli << ",";
         std::cout << num_moduli << ",";
@@ -51,70 +49,73 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
     outFile << std::endl;
     std::cout << std::endl;
 
-    for (auto &phi : phi_list) {
-        // test matrices
-        makemat::randmat<T>(m, k, A, phi, seedA);
-        CHECK_CUDA(cudaGetLastError());
-        CHECK_CUDA(cudaDeviceSynchronize());
-        makemat::randmat<T>(k, n, B, phi, seedB);
-        CHECK_CUDA(cudaGetLastError());
-        CHECK_CUDA(cudaDeviceSynchronize());
-
-        // high-precision AB
-        eval::dd::simple_gemm(m, n, k, A, B, C_hi);
-        CHECK_CUDA(cudaGetLastError());
-        CHECK_CUDA(cudaDeviceSynchronize());
-        CHECK_CUDA(cudaMemcpy(C_hi_h.data(), C_hi, size_C * sizeof(accu_t), cudaMemcpyDeviceToHost));
-
-        // native gemm
-        {
-            CHECK_CUBLAS(gemmTraits<T>::gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, mi, ni, ki, &alpha, A, mi, B, ki, &beta, C, mi));
-            auto [err_max, err_med] = eval::err::gemm_err(m, n, C, C_hi);
+    for (size_t k = 1024; k <= size_max; k *= 2) {
+        const int64_t ki = static_cast<int64_t>(k);
+        for (auto &phi : phi_list) {
+            // test matrices
+            makemat::randmat<T>(m, k, A, phi, seedA);
             CHECK_CUDA(cudaGetLastError());
             CHECK_CUDA(cudaDeviceSynchronize());
-            outFile << phi << "," << gemmTraits<T>::prefix_upper() << "GEMM (k=" << k << "),";
-            std::cout << phi << "," << gemmTraits<T>::prefix_upper() << "GEMM (k=" << k << "),";
+            makemat::randmat<T>(k, n, B, phi, seedB);
+            CHECK_CUDA(cudaGetLastError());
+            CHECK_CUDA(cudaDeviceSynchronize());
+
+            // high-precision AB
+            eval::dd::simple_gemm(m, n, k, A, B, C_hi);
+            CHECK_CUDA(cudaGetLastError());
+            CHECK_CUDA(cudaDeviceSynchronize());
+            CHECK_CUDA(cudaMemcpy(C_hi_h.data(), C_hi, size_C * sizeof(accu_t), cudaMemcpyDeviceToHost));
+
+            // native gemm
+            {
+                CHECK_CUBLAS(gemmTraits<T>::gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, mi, ni, ki, &alpha, A, mi, B, ki, &beta, C, mi));
+                auto [err_max, err_med] = eval::err::gemm_err(m, n, C, C_hi);
+                CHECK_CUDA(cudaGetLastError());
+                CHECK_CUDA(cudaDeviceSynchronize());
+                outFile << phi << "," << k << "," << gemmTraits<T>::prefix_upper() << "GEMM,";
+                std::cout << phi << "," << k << "," << gemmTraits<T>::prefix_upper() << "GEMM,";
+                for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
+                    outFile << err_max << ",";
+                    std::cout << err_max << ",";
+                }
+                outFile << std::endl;
+                std::cout << std::endl;
+            }
+
+            // fast mode
+            outFile << phi << "," << k << ",OS2-fast,";
+            std::cout << phi << "," << k << ",OS2-fast,";
             for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
+                gemmul8::gemm<T, backend>(handleLt, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, A, m, B, k, &beta, C, m, num_moduli, true, work);
+                CHECK_CUDA(cudaGetLastError());
+                CHECK_CUDA(cudaDeviceSynchronize());
+                CHECK_CUDA(cudaMemcpy(C_hi, C_hi_h.data(), size_C * sizeof(accu_t), cudaMemcpyHostToDevice));
+                auto [err_max, err_med] = eval::err::gemm_err(m, n, C, C_hi);
+                CHECK_CUDA(cudaGetLastError());
+                CHECK_CUDA(cudaDeviceSynchronize());
+                outFile << err_max << ",";
+                std::cout << err_max << ",";
+            }
+            outFile << std::endl;
+            std::cout << std::endl;
+
+            // accu mode
+            outFile << phi << "," << k << ",OS2-accu,";
+            std::cout << phi << "," << k << ",OS2-accu,";
+            for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
+                gemmul8::gemm<T, backend>(handleLt, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, A, m, B, k, &beta, C, m, num_moduli, false, work);
+                CHECK_CUDA(cudaGetLastError());
+                CHECK_CUDA(cudaDeviceSynchronize());
+                CHECK_CUDA(cudaMemcpy(C_hi, C_hi_h.data(), size_C * sizeof(accu_t), cudaMemcpyHostToDevice));
+                auto [err_max, err_med] = eval::err::gemm_err(m, n, C, C_hi);
+                CHECK_CUDA(cudaGetLastError());
+                CHECK_CUDA(cudaDeviceSynchronize());
                 outFile << err_max << ",";
                 std::cout << err_max << ",";
             }
             outFile << std::endl;
             std::cout << std::endl;
         }
-
-        // fast mode
-        outFile << phi << ",OS2-fast (k=" << k << "),";
-        std::cout << phi << ",OS2-fast (k=" << k << "),";
-        for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
-            gemmul8::gemm<T, backend>(handleLt, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, A, m, B, k, &beta, C, m, num_moduli, true, work);
-            CHECK_CUDA(cudaGetLastError());
-            CHECK_CUDA(cudaDeviceSynchronize());
-            CHECK_CUDA(cudaMemcpy(C_hi, C_hi_h.data(), size_C * sizeof(accu_t), cudaMemcpyHostToDevice));
-            auto [err_max, err_med] = eval::err::gemm_err(m, n, C, C_hi);
-            CHECK_CUDA(cudaGetLastError());
-            CHECK_CUDA(cudaDeviceSynchronize());
-            outFile << err_max << ",";
-            std::cout << err_max << ",";
-        }
-        outFile << std::endl;
-        std::cout << std::endl;
-
-        // accu mode
-        outFile << phi << ",OS2-accu (k=" << k << "),";
-        std::cout << phi << ",OS2-accu (k=" << k << "),";
-        for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
-            gemmul8::gemm<T, backend>(handleLt, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, A, m, B, k, &beta, C, m, num_moduli, false, work);
-            CHECK_CUDA(cudaGetLastError());
-            CHECK_CUDA(cudaDeviceSynchronize());
-            CHECK_CUDA(cudaMemcpy(C_hi, C_hi_h.data(), size_C * sizeof(accu_t), cudaMemcpyHostToDevice));
-            auto [err_max, err_med] = eval::err::gemm_err(m, n, C, C_hi);
-            CHECK_CUDA(cudaGetLastError());
-            CHECK_CUDA(cudaDeviceSynchronize());
-            outFile << err_max << ",";
-            std::cout << err_max << ",";
-        }
-        outFile << std::endl;
-        std::cout << std::endl;
     }
 
     std::cout << std::endl;

@@ -33,6 +33,8 @@ int main(int argc, char **argv) {
     bool run_DGEMM    = false;
     bool run_CGEMM    = false;
     bool run_ZGEMM    = false;
+    bool run_INT8     = false;
+    bool run_FP8      = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -54,31 +56,63 @@ int main(int argc, char **argv) {
             run_CGEMM = true;
         } else if (arg == "ZGEMM") {
             run_ZGEMM = true;
+        } else if (arg == "INT8") {
+            run_INT8 = true;
+        } else if (arg == "FP8") {
+            run_FP8 = true;
         }
     }
 
-    if (run_SGEMM) {
-        if (run_accuracy) accuracy_check<float>(deviceName, startTime);
-        if (run_flops) time_check<float>(deviceName, startTime);
-        if (run_watt) watt_check<float>(deviceName, startTime);
-    }
+    if (run_INT8) {
+        if (run_SGEMM) {
+            if (run_accuracy) accuracy_check<float, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_flops) time_check<float, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_watt) watt_check<float, gemmul8::Backend::INT8>(deviceName, startTime);
+        }
 
-    if (run_DGEMM) {
-        if (run_accuracy) accuracy_check<double>(deviceName, startTime);
-        if (run_flops) time_check<double>(deviceName, startTime);
-        if (run_watt) watt_check<double>(deviceName, startTime);
-    }
+        if (run_DGEMM) {
+            if (run_accuracy) accuracy_check<double, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_flops) time_check<double, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_watt) watt_check<double, gemmul8::Backend::INT8>(deviceName, startTime);
+        }
 
-    if (run_CGEMM) {
-        if (run_accuracy) accuracy_check<cuFloatComplex>(deviceName, startTime);
-        if (run_flops) time_check<cuFloatComplex>(deviceName, startTime);
-        if (run_watt) watt_check<cuFloatComplex>(deviceName, startTime);
-    }
+        if (run_CGEMM) {
+            if (run_accuracy) accuracy_check<cuFloatComplex, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_flops) time_check<cuFloatComplex, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_watt) watt_check<cuFloatComplex, gemmul8::Backend::INT8>(deviceName, startTime);
+        }
 
-    if (run_ZGEMM) {
-        if (run_accuracy) accuracy_check<cuDoubleComplex>(deviceName, startTime);
-        if (run_flops) time_check<cuDoubleComplex>(deviceName, startTime);
-        if (run_watt) watt_check<cuDoubleComplex>(deviceName, startTime);
+        if (run_ZGEMM) {
+            if (run_accuracy) accuracy_check<cuDoubleComplex, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_flops) time_check<cuDoubleComplex, gemmul8::Backend::INT8>(deviceName, startTime);
+            if (run_watt) watt_check<cuDoubleComplex, gemmul8::Backend::INT8>(deviceName, startTime);
+        }
+    }
+    
+    if (run_FP8) {
+        if (run_SGEMM) {
+            if (run_accuracy) accuracy_check<float, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_flops) time_check<float, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_watt) watt_check<float, gemmul8::Backend::FP8>(deviceName, startTime);
+        }
+
+        if (run_DGEMM) {
+            if (run_accuracy) accuracy_check<double, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_flops) time_check<double, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_watt) watt_check<double, gemmul8::Backend::FP8>(deviceName, startTime);
+        }
+
+        if (run_CGEMM) {
+            if (run_accuracy) accuracy_check<cuFloatComplex, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_flops) time_check<cuFloatComplex, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_watt) watt_check<cuFloatComplex, gemmul8::Backend::FP8>(deviceName, startTime);
+        }
+
+        if (run_ZGEMM) {
+            if (run_accuracy) accuracy_check<cuDoubleComplex, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_flops) time_check<cuDoubleComplex, gemmul8::Backend::FP8>(deviceName, startTime);
+            if (run_watt) watt_check<cuDoubleComplex, gemmul8::Backend::FP8>(deviceName, startTime);
+        }
     }
 
     std::string endTime = getCurrentDateTime(stop);
