@@ -40,7 +40,7 @@ __inline__ void watt_check(std::string &deviceName, std::string &dateTime) {
             const size_t lwork_gemmul8    = gemmul8::workSize<gemmTraits<T>::is_complex, backend>(m, n, k, num_moduli_max);
             const size_t lwork            = std::max(size_C * sizeof(accu_t), lwork_gemmul8);
             const size_t total_work       = lwork + (size_A + size_B + size_C) * sizeof(T);
-            if ((total_work + 256ULL * sizeof(accu_t)) * 1.e-9 > total_memory) {
+            if ((total_work + 256ULL * sizeof(accu_t)) * 1.e-6 > total_memory) {
                 continue;
             }
 

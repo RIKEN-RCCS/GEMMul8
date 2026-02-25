@@ -31,7 +31,7 @@ endif
 ifeq ($(BACKEND),cuda)
 
 ifeq ($(GPU_ARCH),auto)
-GPU_ARCH = $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | tr -d '.')
+GPU_ARCH := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -n 1 | tr -d '.')
 endif
 
 export PATH := $(CUDA_PATH)/bin:$(PATH)

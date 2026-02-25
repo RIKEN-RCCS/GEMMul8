@@ -127,3 +127,87 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
     CHECK_CUBLAS(cublasDestroy(handle));
     outFile.close();
 }
+
+template <typename T>
+__inline__ void distribution_check(std::string &deviceName, std::string &dateTime) {
+
+    CHECK_CUDA(cudaSetDevice(0));
+
+    const size_t m = 128;
+    const size_t n = 128;
+
+    const int64_t mi = static_cast<int64_t>(m);
+    const int64_t ni = static_cast<int64_t>(n);
+
+    const size_t size_A = m * size_max;
+    const size_t size_B = size_max * n;
+
+    T *A, *B;
+
+    CHECK_CUDA(cudaMalloc(reinterpret_cast<void **>(&A), size_A * sizeof(T)));
+    CHECK_CUDA(cudaMalloc(reinterpret_cast<void **>(&B), size_B * sizeof(T)));
+
+    std::cout << std::scientific;
+    std::cout << "phi,k,in_max,in_min,in_med," << std::endl;
+
+    for (size_t k = 1024; k <= size_max; k *= 2) {
+        const int64_t ki = static_cast<int64_t>(k);
+        for (auto &phi : phi_list) {
+            // test matrices
+            makemat::randmat<T>(m, k, A, phi, seedA);
+            CHECK_CUDA(cudaGetLastError());
+            CHECK_CUDA(cudaDeviceSynchronize());
+
+            makemat::randmat<T>(k, n, B, phi, seedB);
+            CHECK_CUDA(cudaGetLastError());
+            CHECK_CUDA(cudaDeviceSynchronize());
+
+            double in_max, in_min, in_med;
+            if constexpr (std::is_same_v<T, cuFloatComplex>) {
+
+                size_t size_AB = 2 * m * k + 2 * k * n;
+                std::vector<float> h(size_AB);
+                cudaMemcpy(h.data(), A, 2 * m * k * sizeof(float), cudaMemcpyDeviceToHost);
+                cudaMemcpy(h.data() + 2 * m * k, B, 2 * k * n * sizeof(float), cudaMemcpyDeviceToHost);
+#pragma omp parallel for
+                for (size_t i = 0; i < size_AB; ++i) h[i] = (h[i] < 0) ? -h[i] : h[i];
+                std::sort(h.begin(), h.end());
+                in_min = double(h[0]);
+                in_max = double(h[size_AB - 1]);
+                in_med = (size_AB & 1) ? double(h[size_AB / 2]) : ((double(h[size_AB / 2]) + double(h[size_AB / 2 - 1])) * 0.5);
+
+            } else if constexpr (std::is_same_v<T, cuDoubleComplex>) {
+
+                size_t size_AB = 2 * m * k + 2 * k * n;
+                std::vector<double> h(size_AB);
+                cudaMemcpy(h.data(), A, 2 * m * k * sizeof(double), cudaMemcpyDeviceToHost);
+                cudaMemcpy(h.data() + 2 * m * k, B, 2 * k * n * sizeof(double), cudaMemcpyDeviceToHost);
+#pragma omp parallel for
+                for (size_t i = 0; i < size_AB; ++i) h[i] = (h[i] < 0) ? -h[i] : h[i];
+                std::sort(h.begin(), h.end());
+                in_min = double(h[0]);
+                in_max = double(h[size_AB - 1]);
+                in_med = (size_AB & 1) ? double(h[size_AB / 2]) : ((double(h[size_AB / 2]) + double(h[size_AB / 2 - 1])) * 0.5);
+
+            } else {
+
+                size_t size_AB = m * k + k * n;
+                std::vector<T> h(size_AB);
+                cudaMemcpy(h.data(), A, m * k * sizeof(T), cudaMemcpyDeviceToHost);
+                cudaMemcpy(h.data() + m * k, B, k * n * sizeof(T), cudaMemcpyDeviceToHost);
+#pragma omp parallel for
+                for (size_t i = 0; i < size_AB; ++i) h[i] = (h[i] < 0) ? -h[i] : h[i];
+                std::sort(h.begin(), h.end());
+                in_min = double(h[0]);
+                in_max = double(h[size_AB - 1]);
+                in_med = (size_AB & 1) ? double(h[size_AB / 2]) : ((double(h[size_AB / 2]) + double(h[size_AB / 2 - 1])) * 0.5);
+            }
+
+            std::cout << phi << "," << k << "," << in_max << "," << in_min << "," << in_med << "," << std::endl;
+        }
+    }
+
+    std::cout << std::endl;
+    CHECK_CUDA(cudaFree(B));
+    CHECK_CUDA(cudaFree(A));
+}
