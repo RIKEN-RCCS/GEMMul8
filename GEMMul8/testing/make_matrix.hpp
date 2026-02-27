@@ -48,21 +48,35 @@ __global__ void randmat_kernel(size_t m,                      // rows of A
         const double rand_i  = curand_uniform_double(&state);
         const double randn_r = curand_normal_double(&state);
         const double randn_i = curand_normal_double(&state);
-        out.x                = (rand_r - 0.5) * exp(randn_r * phi);
-        out.y                = (rand_i - 0.5) * exp(randn_i * phi);
+        if (phi < 0) {
+            out.x = randn_r;
+            out.y = randn_i;
+        } else {
+            out.x = (rand_r - 0.5) * exp(randn_r * phi);
+            out.y = (rand_i - 0.5) * exp(randn_i * phi);
+        }
 
     } else if constexpr (std::is_same_v<T, cuFloatComplex>) {
         const double rand_r  = curand_uniform_double(&state);
         const double rand_i  = curand_uniform_double(&state);
         const double randn_r = curand_normal_double(&state);
         const double randn_i = curand_normal_double(&state);
-        out.x                = static_cast<float>((rand_r - 0.5) * exp(randn_r * phi));
-        out.y                = static_cast<float>((rand_i - 0.5) * exp(randn_i * phi));
+        if (phi < 0) {
+            out.x = static_cast<float>(randn_r);
+            out.y = static_cast<float>(randn_i);
+        } else {
+            out.x = static_cast<float>((rand_r - 0.5) * exp(randn_r * phi));
+            out.y = static_cast<float>((rand_i - 0.5) * exp(randn_i * phi));
+        }
 
     } else {
         const double rand  = curand_uniform_double(&state);
         const double randn = curand_normal_double(&state);
-        out                = static_cast<T>((rand - 0.5) * exp(randn * phi));
+        if (phi < 0) {
+            out = static_cast<T>(randn);
+        } else {
+            out = static_cast<T>((rand - 0.5) * exp(randn * phi));
+        }
     }
     A[idx] = out;
 }

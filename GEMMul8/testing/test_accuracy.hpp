@@ -1,4 +1,5 @@
 #pragma once
+#include "ozaki1.hpp"
 
 template <typename T, gemmul8::Backend backend = gemmul8::Backend::FP8>
 __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
@@ -8,6 +9,8 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
     CHECK_CUDA(cudaSetDevice(0));
     cublasHandle_t handle;
     CHECK_CUBLAS(cublasCreate(&handle));
+    cublasHandle_t handle_Oz;
+    CHECK_CUBLAS(cublasCreate(&handle_Oz));
     cublasLtHandle_t handleLt;
     CHECK_CUBLASLT(cublasLtCreate(&handleLt));
 
@@ -39,6 +42,8 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
     CHECK_CUDA(cudaMalloc(reinterpret_cast<void **>(&C), size_C * sizeof(T)));
     CHECK_CUDA(cudaMalloc(&work, std::max(lwork, size_C * sizeof(accu_t))));
     C_hi = reinterpret_cast<accu_t *>(work);
+
+    ozaki1::setting(handle_Oz, m, n, size_max, 7);
 
     outFile << "phi,k,function,";
     std::cout << "phi,k,function,";
@@ -74,6 +79,22 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
                 CHECK_CUDA(cudaDeviceSynchronize());
                 outFile << phi << "," << k << "," << gemmTraits<T>::prefix_upper() << "GEMM,";
                 std::cout << phi << "," << k << "," << gemmTraits<T>::prefix_upper() << "GEMM,";
+                for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
+                    outFile << err_max << ",";
+                    std::cout << err_max << ",";
+                }
+                outFile << std::endl;
+                std::cout << std::endl;
+            }
+
+            // Ozaki-1
+            {
+                CHECK_CUBLAS(gemmTraits<T>::gemm(handle_Oz, CUBLAS_OP_N, CUBLAS_OP_N, mi, ni, ki, &alpha, A, mi, B, ki, &beta, C, mi));
+                auto [err_max, err_med] = eval::err::gemm_err(m, n, C, C_hi);
+                CHECK_CUDA(cudaGetLastError());
+                CHECK_CUDA(cudaDeviceSynchronize());
+                outFile << phi << "," << k << ",OS1-7,";
+                std::cout << phi << "," << k << ",OS1-7,";
                 for (unsigned num_moduli = NUM_MODULI_MIN<T>; num_moduli <= NUM_MODULI_MAX<T>; ++num_moduli) {
                     outFile << err_max << ",";
                     std::cout << err_max << ",";
@@ -123,13 +144,14 @@ __inline__ void accuracy_check(std::string &deviceName, std::string &dateTime) {
     CHECK_CUDA(cudaFree(C));
     CHECK_CUDA(cudaFree(B));
     CHECK_CUDA(cudaFree(A));
+    CHECK_CUBLAS(cublasDestroy(handle_Oz));
     CHECK_CUBLASLT(cublasLtDestroy(handleLt));
     CHECK_CUBLAS(cublasDestroy(handle));
     outFile.close();
 }
 
 template <typename T>
-__inline__ void distribution_check(std::string &deviceName, std::string &dateTime) {
+__inline__ void distribution_check() {
 
     CHECK_CUDA(cudaSetDevice(0));
 

@@ -34,7 +34,7 @@ inline constexpr unsigned warmup          = 30;
 inline constexpr unsigned mainloop        = 30;
 inline constexpr unsigned long long seedA = 12345;
 inline constexpr unsigned long long seedB = 54321;
-std::vector<double> phi_list{0.0, 0.5, 1.0, 2.0, 4.0};
+std::vector<double> phi_list{-1.0, 0.0, 0.5, 1.0, 2.0, 4.0};
 template <typename T> inline constexpr unsigned NUM_MODULI_MIN        = 3;
 template <typename T> inline constexpr unsigned NUM_MODULI_MAX        = 12;
 template <> inline constexpr unsigned NUM_MODULI_MIN<double>          = 9;
