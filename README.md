@@ -60,6 +60,10 @@ GEMMul8 supports two low-precision emulation backends:
 - INT8 backend: uses standard BLAS handle (cuBLAS/hipBLAS handle) or Lt handle (cuBLASLt/hipBLASLt handle).
 - FP8 backend: uses Lt handle (cuBLASLt/hipBLASLt handle).
 
+> [!CAUTION]
+>
+> This library does not support FP8-based emulation on Hopper architectures.
+
 ## Supported operations
 
 GEMMul8 currently provides the following BLAS-like operations.

@@ -276,6 +276,12 @@ int main(int argc, char **argv) {
     std::string startTime  = getCurrentDateTime(start);
     std::string deviceName = printEnvironmentInfo(startTime);
 
+    bool isHopper = false;
+#if defined(__CUDACC__) || defined(__NVCC__)
+    auto [cc_major, cc_minor] = getComputeCapability(-1);
+    isHopper                  = cc_major == 9;
+#endif
+
     bool run_accuracy_rec = false;
     bool run_accuracy_sqr = false;
     bool run_time_rec     = false;
@@ -486,6 +492,8 @@ int main(int argc, char **argv) {
         print_options(argv[0]);
         return 1;
     }
+
+    run_Ozaki2_F8 = (isHopper) ? false : run_Ozaki2_F8;
 
     if (run_accuracy_sqr) {
 
@@ -1220,7 +1228,7 @@ int main(int argc, char **argv) {
     std::cout << "=========================" << std::endl;
     std::cout << "start        : " << startTime << std::endl;
     std::cout << "end          : " << endTime << std::endl;
-    std::cout << "elapsed time : " << sec << " [sec]" << " (" << sec/60.0 << "[min])" << std::endl;
+    std::cout << "elapsed time : " << sec << " [sec]" << " (" << sec / 60.0 << "[min])" << std::endl;
     std::cout << "=========================" << std::endl;
     std::cout << std::endl;
 

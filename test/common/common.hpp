@@ -67,13 +67,13 @@
         std::cout << std::scientific << LINE; \
     } while (0)
 
-inline constexpr unsigned warmup_min  = 3;
+inline constexpr unsigned warmup_min  = 10;
 inline constexpr unsigned warmup_max  = 100;
-inline constexpr double warmup_ms_min = 3000.0;
+inline constexpr double warmup_ms_min = 5000.0;
 
-inline constexpr unsigned mainloop_min  = 5;
+inline constexpr unsigned mainloop_min  = 30;
 inline constexpr unsigned mainloop_max  = 100;
-inline constexpr double mainloop_ms_min = 12000.0;
+inline constexpr double mainloop_ms_min = 15000.0;
 
 inline constexpr unsigned repetitions = 1;
 
