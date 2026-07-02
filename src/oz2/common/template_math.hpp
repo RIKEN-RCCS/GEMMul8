@@ -216,6 +216,10 @@ template <> __device__ __forceinline__ cuDoubleComplex Tcast<char2, cuDoubleComp
 template <> __device__ __forceinline__ cuDoubleComplex Tcast<short2, cuDoubleComplex>(short2 in) { return cuDoubleComplex{double(in.x), double(in.y)}; }
 template <> __device__ __forceinline__ double Tcast<uint8_t, double>(uint8_t in) { return double(in); }
 
+template <typename Tin> __device__ __forceinline__ float float_ru(Tin in);
+template <> __device__ __forceinline__ float float_ru<double>(double in) { return __double2float_ru(in); };
+template <> __device__ __forceinline__ float float_ru<float>(float in) { return in; };
+
 //------------------------------
 // static_cast (fp -> int)
 //------------------------------

@@ -25,17 +25,15 @@ void scaling_symm_hemm_launch(
 
     using U                    = common::underlying_t<T>;
     const size_t partial_elems = size_t(n) * num_col_blocks;
-    U *const partial_amax      = general::temporary_memory<common::low_t<BACKEND>, U>(A_lo.ptr0);
-    U *const partial_sum       = partial_amax + partial_elems;
-    U *const amaxA             = partial_sum + partial_elems;
-    U *const sumA              = amaxA + n;
+    U *const partial_sum       = general::temporary_memory<common::low_t<BACKEND>, U>(A_lo.ptr0);
+    U *const sumA              = partial_sum + partial_elems;
 
     calc_stat_sym_rowwise_launch<T, UPLO, HERM>(
-        stream, n, A, lda, partial_amax, partial_sum, amaxA, sumA);
+        stream, n, A, lda, partial_sum, sumA);
 
     calc_sft_sym_colwise<T, BACKEND, NUM_MODULI, UPLO>
         <<<n, threads_fast, 0, stream>>>(
-            n, A, lda, sftA, amaxA, sumA);
+            n, A, lda, sftA, sumA);
 
     if constexpr (HERM) {
 
