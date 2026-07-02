@@ -19,14 +19,13 @@ __global__ void scaling_colwise(
     int16_t *const __restrict__ sftA //
 ) {
     using U = common::underlying_t<T>;
-    __shared__ U samax[32];
     __shared__ U ssum[32];
 
     const unsigned col_idx         = blockIdx.x;
     const T *const __restrict__ in = A + col_idx * lda;
 
     const int32_t sft = calc_sft_colwise<T, BACKEND, NUM_MODULI, UPLO, DIAG>(
-        rows_A, in, sftA, samax, ssum);
+        rows_A, in, sftA, ssum);
 
     general::scaling_colwise_device<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ>(
         rows_A, in, A_lo, lda_lo, incA_lo, sft);
@@ -47,15 +46,11 @@ void scaling(
         if (op_A == CUBLAS_OP_N) {
 
             // A: rows_A x cols_A -> A_lo: cols_A x rows_A
-            using U = common::underlying_t<T>;
-            const unsigned num_col_blocks =
-                (cols_A + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
-
-            U *const partial_amax = general::temporary_memory<common::low_t<BACKEND>, U>(A_lo.ptr0);
-            U *const partial_sum  = partial_amax + size_t(rows_A) * num_col_blocks;
+            using U              = common::underlying_t<T>;
+            U *const partial_sum = general::temporary_memory<common::low_t<BACKEND>, U>(A_lo.ptr0);
 
             calc_sft_rowwise_launch<T, BACKEND, NUM_MODULI, UPLO, DIAG>(
-                stream, rows_A, cols_A, A, lda, sftA, partial_amax, partial_sum);
+                stream, rows_A, cols_A, A, lda, sftA, partial_sum);
 
             if constexpr (UPLO != CUBLAS_FILL_MODE_FULL) {
                 general::memset_low_mats_async<T, BACKEND, NUM_MODULI>(stream, A_lo, incA_lo);
@@ -100,15 +95,11 @@ void scaling(
         } else {
 
             // A: cols_A x rows_A -> A_lo: rows_A x cols_A
-            using U = common::underlying_t<T>;
-            const unsigned num_col_blocks =
-                (rows_A + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
-
-            U *const partial_amax = general::temporary_memory<common::low_t<BACKEND>, U>(A_lo.ptr0);
-            U *const partial_sum  = partial_amax + size_t(cols_A) * num_col_blocks;
+            using U              = common::underlying_t<T>;
+            U *const partial_sum = general::temporary_memory<common::low_t<BACKEND>, U>(A_lo.ptr0);
 
             calc_sft_rowwise_launch<T, BACKEND, NUM_MODULI, UPLO, DIAG>(
-                stream, cols_A, rows_A, A, lda, sftA, partial_amax, partial_sum);
+                stream, cols_A, rows_A, A, lda, sftA, partial_sum);
 
             if constexpr (UPLO != CUBLAS_FILL_MODE_FULL) {
                 general::memset_low_mats_async<T, BACKEND, NUM_MODULI>(stream, A_lo, incA_lo);

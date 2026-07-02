@@ -6,27 +6,18 @@
 
 namespace gemmul8::scaling::fast {
 
-inline constexpr float h4u_ru = 0x1.0000060000000p-1F; // round_up(0.5 / (1 - 4 * 2^-24))
+inline constexpr float u2 = 0x1.0000000000000p-23F; // 2^-23
 
-template <Backend BACKEND, unsigned NUM_MODULI>
-__device__ __forceinline__ int32_t calc_sft(double amax, double vecnrm) {
-    if (amax == 0.0) return 0;
-    const int32_t exponent = common::Tilogb<double>(vecnrm);
-    const float vecnrmf    = __double2float_ru(scalbn(vecnrm, -exponent));
-    const float log2vnrm   = __fadd_ru(__fmul_ru(h4u_ru, __log2f(vecnrmf)), exponent);
+template <Backend BACKEND, unsigned NUM_MODULI, typename T>
+__device__ __forceinline__ int32_t calc_sft(T vecnrm) {
+    if (vecnrm == T(0.0)) return 0;
+    const int32_t exponent = common::Tilogb<T>(vecnrm);
+    const float vecnrmf    = common::float_ru<T>(common::Tscalbn<T>(vecnrm, -exponent));
+    const float exponent2  = exponent * 0.5f;
     constexpr float log2P  = common::table::log2P<BACKEND, NUM_MODULI>;
-    const float exp1       = __fsub_rd(__fsub_rd(log2P, 2.0f), fmaxf(1.0f, log2vnrm));
-    return __float2int_rd(exp1) - common::Tilogb<double>(amax);
-}
-
-template <Backend BACKEND, unsigned NUM_MODULI>
-__device__ __forceinline__ int32_t calc_sft(float amax, float vecnrm) {
-    if (amax == 0.0f) return 0;
-    const float log2vsum  = __log2f(vecnrm);
-    const float log2vnrm  = __fmul_ru(h4u_ru, log2vsum);
-    constexpr float log2P = common::table::log2P<BACKEND, NUM_MODULI>;
-    const float exp1      = __fsub_rd(__fsub_rd(log2P, 2.0f), fmaxf(1.0f, log2vnrm));
-    return __float2int_rd(exp1) - common::Tilogb<float>(amax);
+    const float mu0        = __fsub_rd(log2P, exponent2);
+    const float mu1        = __fadd_ru(__log2f(vecnrmf) * 0.5f, u2);
+    return __float2int_rd(__fsub_rd(mu0, mu1));
 }
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
@@ -37,20 +28,17 @@ __global__ void calc_sft_rowwise(
     int16_t *const __restrict__ sftA //
 ) {
     using U = common::underlying_t<T>;
-    __shared__ U samax[common::TILE_DIM][common::TILE_DIM + 1];
     __shared__ U ssum[common::TILE_DIM][common::TILE_DIM + 1];
 
-    U sum;
-    U amax = find_amax_and_nrm_tile<T, UPLO, DIAG>(rows_A, cols_A, A, lda, samax, ssum, sum);
+    U sum = calc_nrm_tile<T, UPLO, DIAG>(rows_A, cols_A, A, lda, ssum);
     if constexpr (DIAG == CUBLAS_DIAG_UNIT) {
         constexpr U Uone = common::Tconst<U>::one();
         sum              = common::__Tadd_ru<U>(sum, Uone);
-        amax             = max(amax, Uone);
     }
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < rows_A && threadIdx.x == 0) {
-        const int32_t sft = calc_sft<BACKEND, NUM_MODULI>(amax, sum);
+        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum);
         sftA[row_idx]     = int16_t(-sft);
     }
 }
@@ -61,20 +49,17 @@ __device__ __forceinline__ int32_t calc_sft_colwise(
     const unsigned rows_A,
     const T *const __restrict__ in,
     int16_t *const __restrict__ sftA,
-    common::underlying_t<T> *samax,
     common::underlying_t<T> *ssum //
 ) {
     using U = common::underlying_t<T>;
 
-    U sum;
-    U amax = find_amax_and_nrm<T, UPLO, DIAG>(rows_A, in, samax, ssum, sum);
+    U sum = calc_nrm<T, UPLO, DIAG>(rows_A, in, ssum);
     if constexpr (DIAG == CUBLAS_DIAG_UNIT) {
         constexpr U Uone = common::Tconst<U>::one();
         sum              = common::__Tadd_ru<U>(sum, Uone);
-        amax             = max(amax, Uone);
     }
 
-    const int32_t sft = calc_sft<BACKEND, NUM_MODULI>(amax, sum);
+    const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum);
     if (threadIdx.x == 0) {
         const unsigned col_idx = blockIdx.x;
         sftA[col_idx]          = int16_t(-sft);
@@ -87,22 +72,18 @@ template <typename T, cublasFillMode_t UPLO, bool HERM>
 __global__ void calc_stat_sym_rowwise(
     const unsigned n,
     const T *const __restrict__ A, const size_t lda,
-    common::underlying_t<T> *const __restrict__ amaxA,
     common::underlying_t<T> *const __restrict__ sumA //
 ) {
     using U = common::underlying_t<T>;
 
-    __shared__ U samax[common::TILE_DIM][common::TILE_DIM + 1];
     __shared__ U ssum[common::TILE_DIM][common::TILE_DIM + 1];
 
-    U sum;
-    const U amax = find_amax_and_nrm_tile<T, UPLO, CUBLAS_DIAG_NON_UNIT, HERM>(
-        n, n, A, lda, samax, ssum, sum);
+    const U sum = calc_nrm_tile<T, UPLO, CUBLAS_DIAG_NON_UNIT, HERM>(
+        n, n, A, lda, ssum);
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < n && threadIdx.x == 0) {
-        amaxA[row_idx] = amax;
-        sumA[row_idx]  = sum;
+        sumA[row_idx] = sum;
     }
 }
 
@@ -112,12 +93,10 @@ __global__ void calc_sft_sym_colwise(
     const unsigned n,
     const T *const __restrict__ A, const size_t lda,
     int16_t *const __restrict__ sftA,
-    common::underlying_t<T> *const __restrict__ amaxA,
     common::underlying_t<T> *const __restrict__ sumA //
 ) {
     using U = common::underlying_t<T>;
 
-    __shared__ U samax[32];
     __shared__ U ssum[32];
 
     const unsigned col_idx = blockIdx.x;
@@ -125,15 +104,12 @@ __global__ void calc_sft_sym_colwise(
 
     const T *const __restrict__ in = A + col_idx * lda;
 
-    U sum_col;
-    const U amax_col = find_amax_and_nrm<T, UPLO, CUBLAS_DIAG_UNIT>(
-        n, in, samax, ssum, sum_col);
+    const U sum_col = calc_nrm<T, UPLO, CUBLAS_DIAG_UNIT>(n, in, ssum);
 
     if (threadIdx.x == 0) {
-        const U amax_all = common::Tmax<U>(amaxA[col_idx], amax_col);
-        const U sum_all  = common::__Tadd_ru<U>(sumA[col_idx], sum_col);
+        const U sum_all = common::__Tadd_ru<U>(sumA[col_idx], sum_col);
 
-        const int32_t sft = calc_sft<BACKEND, NUM_MODULI>(amax_all, sum_all);
+        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum_all);
         sftA[col_idx]     = int16_t(-sft);
     }
 }
@@ -142,27 +118,23 @@ template <typename T, cublasFillMode_t UPLO, bool HERM>
 __global__ void calc_stat_sym_rowwise_partial(
     const unsigned n,
     const T *const __restrict__ A, const size_t lda,
-    common::underlying_t<T> *const __restrict__ partial_amax,
     common::underlying_t<T> *const __restrict__ partial_sum //
 ) {
     using U = common::underlying_t<T>;
 
-    __shared__ U samax[common::TILE_DIM][common::TILE_DIM + 1];
     __shared__ U ssum[common::TILE_DIM][common::TILE_DIM + 1];
 
     const unsigned col_begin = blockIdx.y * rowwise_sft_col_tile;
     const unsigned col_end   = min(n, col_begin + rowwise_sft_col_tile);
 
-    U sum;
-    const U amax = find_amax_and_nrm_tile_range<T, UPLO, CUBLAS_DIAG_NON_UNIT, HERM>(
-        n, n, A, lda, samax, ssum, sum, col_begin, col_end);
+    const U sum = calc_nrm_tile_range<T, UPLO, CUBLAS_DIAG_NON_UNIT, HERM>(
+        n, n, A, lda, ssum, col_begin, col_end);
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
 
     if (row_idx < n && threadIdx.x == 0) {
-        const size_t idx  = size_t(row_idx) * gridDim.y + blockIdx.y;
-        partial_amax[idx] = amax;
-        partial_sum[idx]  = sum;
+        const size_t idx = size_t(row_idx) * gridDim.y + blockIdx.y;
+        partial_sum[idx] = sum;
     }
 }
 
@@ -170,31 +142,25 @@ template <typename T>
 __global__ void calc_stat_sym_rowwise_reduce(
     const unsigned n,
     const unsigned num_col_blocks,
-    const common::underlying_t<T> *const __restrict__ partial_amax,
     const common::underlying_t<T> *const __restrict__ partial_sum,
-    common::underlying_t<T> *const __restrict__ amaxA,
     common::underlying_t<T> *const __restrict__ sumA //
 ) {
     using U = common::underlying_t<T>;
 
     const unsigned row_idx = blockIdx.x * blockDim.y + threadIdx.y;
 
-    U amax = common::Tconst<U>::zero();
-    U sum  = common::Tconst<U>::zero();
+    U sum = common::Tconst<U>::zero();
 
     if (row_idx < n) {
         for (unsigned cb = threadIdx.x; cb < num_col_blocks; cb += blockDim.x) {
             const size_t idx = size_t(row_idx) * num_col_blocks + cb;
-            amax             = max(amax, partial_amax[idx]);
             sum              = common::__Tadd_ru<U>(sum, partial_sum[idx]);
         }
 
-        amax = common::inner_warp_max<U>(amax);
-        sum  = common::inner_warp_sum<U>(sum);
+        sum = common::inner_warp_sum<U>(sum);
 
         if (threadIdx.x == 0) {
-            amaxA[row_idx] = amax;
-            sumA[row_idx]  = sum;
+            sumA[row_idx] = sum;
         }
     }
 }
@@ -204,9 +170,7 @@ inline void calc_stat_sym_rowwise_launch(
     const cudaStream_t stream,
     const unsigned n,
     const T *const A, const size_t lda,
-    common::underlying_t<T> *const partial_amax,
     common::underlying_t<T> *const partial_sum,
-    common::underlying_t<T> *const amaxA,
     common::underlying_t<T> *const sumA //
 ) {
     constexpr dim3 threads_findmax(threads_x_findmax_tile,
@@ -218,7 +182,7 @@ inline void calc_stat_sym_rowwise_launch(
 
         calc_stat_sym_rowwise<T, UPLO, HERM>
             <<<grid_findmax, threads_findmax, 0, stream>>>(
-                n, A, lda, amaxA, sumA);
+                n, A, lda, sumA);
         return;
     }
 
@@ -231,7 +195,7 @@ inline void calc_stat_sym_rowwise_launch(
 
     calc_stat_sym_rowwise_partial<T, UPLO, HERM>
         <<<grid_partial, threads_findmax, 0, stream>>>(
-            n, A, lda, partial_amax, partial_sum);
+            n, A, lda, partial_sum);
 
     constexpr dim3 threads_reduce(threads_x_rowwise_sft_reduce,
                                   threads_y_rowwise_sft_reduce);
@@ -241,34 +205,29 @@ inline void calc_stat_sym_rowwise_launch(
 
     calc_stat_sym_rowwise_reduce<T>
         <<<grid_reduce, threads_reduce, 0, stream>>>(
-            n, num_col_blocks,
-            partial_amax, partial_sum, amaxA, sumA);
+            n, num_col_blocks, partial_sum, sumA);
 }
 
 template <typename T, cublasFillMode_t UPLO, cublasDiagType_t DIAG>
 __global__ void calc_sft_rowwise_partial(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
-    common::underlying_t<T> *const __restrict__ partial_amax,
     common::underlying_t<T> *const __restrict__ partial_sum //
 ) {
     using U = common::underlying_t<T>;
 
-    __shared__ U samax[common::TILE_DIM][common::TILE_DIM + 1];
     __shared__ U ssum[common::TILE_DIM][common::TILE_DIM + 1];
 
     const unsigned col_begin = blockIdx.y * rowwise_sft_col_tile;
     const unsigned col_end   = min(cols_A, col_begin + rowwise_sft_col_tile);
 
-    U sum;
-    const U amax = find_amax_and_nrm_tile_range<T, UPLO, DIAG>(
-        rows_A, cols_A, A, lda, samax, ssum, sum, col_begin, col_end);
+    const U sum = calc_nrm_tile_range<T, UPLO, DIAG>(
+        rows_A, cols_A, A, lda, ssum, col_begin, col_end);
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < rows_A && threadIdx.x == 0) {
-        const size_t out  = size_t(row_idx) * gridDim.y + blockIdx.y;
-        partial_amax[out] = amax;
-        partial_sum[out]  = sum;
+        const size_t out = size_t(row_idx) * gridDim.y + blockIdx.y;
+        partial_sum[out] = sum;
     }
 }
 
@@ -276,7 +235,6 @@ template <typename T, Backend BACKEND, unsigned NUM_MODULI, cublasDiagType_t DIA
 __global__ void calc_sft_rowwise_reduce(
     const unsigned rows_A,
     const unsigned num_col_blocks,
-    const common::underlying_t<T> *const __restrict__ partial_amax,
     const common::underlying_t<T> *const __restrict__ partial_sum,
     int16_t *const __restrict__ sftA //
 ) {
@@ -284,27 +242,23 @@ __global__ void calc_sft_rowwise_reduce(
 
     const unsigned row_idx = blockIdx.x * blockDim.y + threadIdx.y;
 
-    U amax = common::Tconst<U>::zero();
-    U sum  = common::Tconst<U>::zero();
+    U sum = common::Tconst<U>::zero();
 
     if (row_idx < rows_A) {
         for (unsigned cb = threadIdx.x; cb < num_col_blocks; cb += blockDim.x) {
             const size_t idx = size_t(row_idx) * num_col_blocks + cb;
-            amax             = max(amax, partial_amax[idx]);
             sum              = common::__Tadd_ru<U>(sum, partial_sum[idx]);
         }
 
-        amax = common::inner_warp_max<U>(amax);
-        sum  = common::inner_warp_sum<U>(sum);
+        sum = common::inner_warp_sum<U>(sum);
 
         if constexpr (DIAG == CUBLAS_DIAG_UNIT) {
             constexpr U Uone = common::Tconst<U>::one();
             sum              = common::__Tadd_ru<U>(sum, Uone);
-            amax             = max(amax, Uone);
         }
 
         if (threadIdx.x == 0) {
-            const int32_t sft = calc_sft<BACKEND, NUM_MODULI>(amax, sum);
+            const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum);
             sftA[row_idx]     = int16_t(-sft);
         }
     }
@@ -317,7 +271,6 @@ inline void calc_sft_rowwise_launch(
     const unsigned rows_A, const unsigned cols_A,
     const T *const A, const size_t lda,
     int16_t *const sftA,
-    common::underlying_t<T> *const partial_amax,
     common::underlying_t<T> *const partial_sum //
 ) {
     constexpr dim3 threads_findmax(threads_x_findmax_tile,
@@ -338,7 +291,7 @@ inline void calc_sft_rowwise_launch(
 
     calc_sft_rowwise_partial<T, UPLO, DIAG>
         <<<grid_partial, threads_findmax, 0, stream>>>(
-            rows_A, cols_A, A, lda, partial_amax, partial_sum);
+            rows_A, cols_A, A, lda, partial_sum);
 
     constexpr dim3 threads_reduce(threads_x_rowwise_sft_reduce,
                                   threads_y_rowwise_sft_reduce);
@@ -347,7 +300,7 @@ inline void calc_sft_rowwise_launch(
 
     calc_sft_rowwise_reduce<T, BACKEND, NUM_MODULI, DIAG>
         <<<grid_reduce, threads_reduce, 0, stream>>>(
-            rows_A, num_col_blocks, partial_amax, partial_sum, sftA);
+            rows_A, num_col_blocks, partial_sum, sftA);
 }
 
 } // namespace gemmul8::scaling::fast
