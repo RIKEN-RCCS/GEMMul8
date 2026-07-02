@@ -841,8 +841,15 @@ The following individuals helped conduct preliminary experiments on the B200 env
 - Ootomo, H., Manabe, H., Harada, K., & Yokota, R. (2023). Quantum Circuit Simulation by SGEMM Emulation on Tensor Cores and Automatic Precision Selection. In High Performance Computing (pp. 259-276). Springer, [doi.org/10.1007/978-3-031-32041-5_14](https://doi.org/10.1007/978-3-031-32041-5_14).
 - Ootomo, H., Ozaki, K., & Yokota, R. (2024). DGEMM on integer matrix multiplication unit. The International Journal of High Performance Computing Applications, 38(4), 297-313, [https://doi.org/10.1177/10943420241239588](https://doi.org/10.1177/10943420241239588).
 - Uchino, Y., Ozaki, K., & Imamura, T. (2025). Performance enhancement of the Ozaki Scheme on integer matrix multiplication unit. The International Journal of High Performance Computing Applications, 39(3), 462-476, [doi.org/10.1177/10943420241313064](https://doi.org/10.1177/10943420241313064).
+- Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
+- Kawakami S. (2026). GEMMul8 (fork with improved fast mode scaling), GitHub, [https://github.com/kotatsumuri/GEMMul8](https://github.com/kotatsumuri/GEMMul8).
 
 ## Citations
+
+> [!NOTE]
+>
+> If you refer to the algorithm used in the fast mode, please also cite the following work:
+> Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
 
 ```bibtex
 @inproceedings{10.1145/3731599.3767539,
@@ -876,8 +883,8 @@ The following individuals helped conduct preliminary experiments on the B200 env
 ```bibtex
 @inproceedings{10.23919/ISC.2026.11520500,
     author={Uchino, Yuki and Ma, Qianxiang and Imamura, Toshiyuki and Ozaki, Katsuhisa and Gutsche, Patrick Lars},
-    booktitle={ISC High Performance 2026 Research Paper Proceedings (41st International Conference)}, 
-    title={Emulation of Complex Matrix Multiplication based on the Chinese Remainder Theorem}, 
+    booktitle={ISC High Performance 2026 Research Paper Proceedings (41st International Conference)},
+    title={Emulation of Complex Matrix Multiplication based on the Chinese Remainder Theorem},
     year={2026},
     volume={},
     number={},
