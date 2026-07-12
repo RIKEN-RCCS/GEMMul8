@@ -51,11 +51,11 @@ inline std::vector<double> trsm_right(
     cublasGetPointerMode(trsm_handle, &saved_ptr_mode);
     cublasSetPointerMode(trsm_handle, CUBLAS_POINTER_MODE_HOST);
 
-#if defined(__CUDACC__)
-    cublasMath_t current_math_mode = CUBLAS_DEFAULT_MATH;
-    cublasGetMathMode(trsm_handle, &current_math_mode);
-    cublasSetMathMode(trsm_handle, CUBLAS_DEFAULT_MATH);
-#endif
+// #if defined(__CUDACC__)
+//     cublasMath_t current_math_mode = CUBLAS_DEFAULT_MATH;
+//     cublasGetMathMode(trsm_handle, &current_math_mode);
+//     cublasSetMathMode(trsm_handle, CUBLAS_DEFAULT_MATH);
+// #endif
 
     const TB one       = common::Tconst<TB>::one();
     const TB minus_one = common::Tconst<TB>::mone();
@@ -187,9 +187,9 @@ inline std::vector<double> trsm_right(
         if (ev) cudaEventDestroy(ev);
     }
 
-#if defined(__CUDACC__)
-    cublasSetMathMode(trsm_handle, current_math_mode);
-#endif
+// #if defined(__CUDACC__)
+//     cublasSetMathMode(trsm_handle, current_math_mode);
+// #endif
     cublasSetPointerMode(trsm_handle, saved_ptr_mode);
 
     if (created_trsm_handle) {
