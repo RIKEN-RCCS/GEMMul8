@@ -17,8 +17,8 @@ template <> struct threshold<Backend::INT8> {
 template <> struct threshold<Backend::FP8> {
     static constexpr int P_is_double = 5;
     static constexpr int S           = 5;
-    static constexpr int M           = 12;
-    static constexpr int L           = 18; // not used
+    static constexpr int M           = 11;
+    static constexpr int L           = 17; // not used
 };
 
 } // namespace gemmul8::common

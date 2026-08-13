@@ -31,26 +31,95 @@ template <> inline constexpr int32_t moduli<Backend::INT8, 18U> = 179;
 template <> inline constexpr int32_t moduli<Backend::INT8, 19U> = 173;
 
 // FP8: moduli
-template <> inline constexpr int32_t moduli<Backend::FP8, 0U>  = 1089; // NOT Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 1U>  = 1024; // NOT Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 2U>  = 961;  // NOT Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 3U>  = 841;  // NOT Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 4U>  = 625;  // NOT Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 5U>  = 529;  // NOT Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 6U>  = 511;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 7U>  = 509;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 8U>  = 503;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 9U>  = 499;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 10U> = 491;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 11U> = 487;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 12U> = 481;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 13U> = 479;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 14U> = 467;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 15U> = 463;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 16U> = 461;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 17U> = 457;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 18U> = 449;  // Karatsuba
-template <> inline constexpr int32_t moduli<Backend::FP8, 19U> = 443;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 0U>  = 2401; // base-49
+template <> inline constexpr int32_t moduli<Backend::FP8, 1U>  = 2209; // base-47
+template <> inline constexpr int32_t moduli<Backend::FP8, 2U>  = 2025; // base-45
+template <> inline constexpr int32_t moduli<Backend::FP8, 3U>  = 1849; // base-43
+template <> inline constexpr int32_t moduli<Backend::FP8, 4U>  = 1681; // base-41
+template <> inline constexpr int32_t moduli<Backend::FP8, 5U>  = 1369; // base-37
+template <> inline constexpr int32_t moduli<Backend::FP8, 6U>  = 1193; // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 7U>  = 1097; // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 8U>  = 1033; // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 9U>  = 1024; // base-32
+template <> inline constexpr int32_t moduli<Backend::FP8, 10U> = 1003; // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 11U> = 997;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 12U> = 961;  // base-31
+template <> inline constexpr int32_t moduli<Backend::FP8, 13U> = 941;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 14U> = 937;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 15U> = 911;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 16U> = 907;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 17U> = 863;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 18U> = 859;  // Karatsuba
+template <> inline constexpr int32_t moduli<Backend::FP8, 19U> = 841;  // base-29
+
+inline constexpr int32_t moduli_fp8[20] = {
+    moduli<Backend::FP8, 0U>,
+    moduli<Backend::FP8, 1U>,
+    moduli<Backend::FP8, 2U>,
+    moduli<Backend::FP8, 3U>,
+    moduli<Backend::FP8, 4U>,
+    moduli<Backend::FP8, 5U>,
+    moduli<Backend::FP8, 6U>,
+    moduli<Backend::FP8, 7U>,
+    moduli<Backend::FP8, 8U>,
+    moduli<Backend::FP8, 9U>,
+    moduli<Backend::FP8, 10U>,
+    moduli<Backend::FP8, 11U>,
+    moduli<Backend::FP8, 12U>,
+    moduli<Backend::FP8, 13U>,
+    moduli<Backend::FP8, 14U>,
+    moduli<Backend::FP8, 15U>,
+    moduli<Backend::FP8, 16U>,
+    moduli<Backend::FP8, 17U>,
+    moduli<Backend::FP8, 18U>,
+    moduli<Backend::FP8, 19U>,
+};
+
+inline constexpr unsigned k_block_first_fp8[20] = {
+    16384, // 2401
+    18432, // 2209
+    21248, // 2025
+    24576, // 1849
+    28928, // 1681
+    41728, // 1369
+    16384, // 1193
+    16384, // 1097
+    16384, // 1033
+    65536, // 1024
+    16384, // 1003
+    16384, // 997
+    74496, // 961
+    16384, // 941
+    16384, // 937
+    16384, // 911
+    16384, // 907
+    16384, // 863
+    16384, // 859
+    85504  // 841
+};
+
+inline constexpr unsigned k_block_next_fp8[20] = {
+    16128, // 2401
+    18432, // 2209
+    21248, // 2025
+    24576, // 1849
+    28928, // 1681
+    41728, // 1369
+    16128, // 1193
+    16128, // 1097
+    16128, // 1033
+    65280, // 1024
+    16128, // 1003
+    16128, // 997
+    74496, // 961
+    16128, // 941
+    16128, // 937
+    16128, // 911
+    16128, // 907
+    16128, // 863
+    16128, // 859
+    85504  // 841
+};
 
 // 2^32 / moduli
 template <Backend BACKEND, unsigned IDX>
@@ -64,15 +133,27 @@ inline constexpr int64_t p_inv_64_v =
     int64_t(UINT64_MAX_V % uint64_t(moduli<BACKEND, IDX>) == uint64_t(moduli<BACKEND, IDX> - 1));
 
 // FP8: sqrt(moduli)
-template <unsigned IDX> inline constexpr int32_t sqrt_moduli = 33;
-template <> inline constexpr int32_t sqrt_moduli<0U>         = 33;
-template <> inline constexpr int32_t sqrt_moduli<1U>         = 32;
-template <> inline constexpr int32_t sqrt_moduli<2U>         = 31;
-template <> inline constexpr int32_t sqrt_moduli<3U>         = 29;
-template <> inline constexpr int32_t sqrt_moduli<4U>         = 25;
-template <> inline constexpr int32_t sqrt_moduli<5U>         = 23;
+template <unsigned IDX> inline constexpr int32_t sqrt_moduli = 0;
+template <> inline constexpr int32_t sqrt_moduli<0U>         = 49;
+template <> inline constexpr int32_t sqrt_moduli<1U>         = 47;
+template <> inline constexpr int32_t sqrt_moduli<2U>         = 45;
+template <> inline constexpr int32_t sqrt_moduli<3U>         = 43;
+template <> inline constexpr int32_t sqrt_moduli<4U>         = 41;
+template <> inline constexpr int32_t sqrt_moduli<5U>         = 37;
+template <> inline constexpr int32_t sqrt_moduli<9U>         = 32;
+template <> inline constexpr int32_t sqrt_moduli<12U>        = 31;
+template <> inline constexpr int32_t sqrt_moduli<19U>        = 29;
 
-inline constexpr unsigned not_Karatsuba = 6U;
+constexpr bool isKaratsuba[20] = {
+    false, false, false, false, false,
+    false, true, true, true, false,
+    true, true, false, true, true,
+    true, true, true, true, false};
+
+constexpr unsigned num_mat_fp8[21] = {
+    0,
+    2, 4, 6, 8, 10, 12, 15, 18, 21, 23,
+    26, 29, 31, 34, 37, 40, 43, 46, 49, 51};
 
 //==========
 // number of matrices for workspace of A/B
@@ -81,11 +162,7 @@ template <Backend BACKEND> inline unsigned num_mat(unsigned NUM_MODULI) {
     if constexpr (BACKEND == Backend::INT8) {
         return NUM_MODULI;
     } else {
-        if (NUM_MODULI <= not_Karatsuba) {
-            return 2u * NUM_MODULI;
-        } else {
-            return 2u * not_Karatsuba + 3u * (NUM_MODULI - not_Karatsuba);
-        }
+        return num_mat_fp8[NUM_MODULI];
     }
 };
 template <Backend BACKEND, unsigned NUM_MODULI>
@@ -93,11 +170,7 @@ __host__ __device__ constexpr unsigned num_mat_constexpr() {
     if constexpr (BACKEND == Backend::INT8) {
         return NUM_MODULI;
     } else {
-        if constexpr (NUM_MODULI <= not_Karatsuba) {
-            return 2u * NUM_MODULI;
-        } else {
-            return 2u * not_Karatsuba + 3u * (NUM_MODULI - not_Karatsuba);
-        }
+        return num_mat_fp8[NUM_MODULI];
     }
 }
 template <Backend BACKEND, unsigned NUM_MODULI>
@@ -132,25 +205,25 @@ constexpr double2 P[19] = {
 
 namespace FP8 {
 constexpr double2 P[19] = {
-    { -0x1.1040000000000p+20,    0x0.0000000000000p+0},
-    { -0x1.ff00200000000p+29,    0x0.0000000000000p+0},
-    { -0x1.a3adda4800000p+39,    0x0.0000000000000p+0},
-    { -0x1.0026dc7a72000p+49,    0x0.0000000000000p+0},
-    { -0x1.08a826cc82c90p+58,    0x0.0000000000000p+0},
-    { -0x1.0823d2b91c87ap+67,   0x1.2000000000000p+13},
-    { -0x1.06979cfd06dcdp+76,  -0x1.6c00000000000p+16},
-    { -0x1.01f9f2ba943dfp+85,   0x1.91a6600000000p+29},
-    { -0x1.f6da3421aef4bp+93,  -0x1.f0462cb800000p+39},
-    {-0x1.e23a40fe4d47bp+102,   0x1.c852d07630000p+46},
-    {-0x1.caae68d1e281bp+111,   0x1.ca0ac5486aa80p+55},
-    {-0x1.aee8d9792d4adp+120,  -0x1.0a6c386a5df35p+66},
-    {-0x1.9322d774dddf8p+129,  -0x1.7d00fb1e0b947p+73},
-    {-0x1.6fb44785185f6p+138,   0x1.b23dcd7a0c381p+83},
-    {-0x1.4c8386acdb8a4p+147,   0x1.e0aee34fde0cbp+92},
-    {-0x1.2b646cc2a3abfp+156, -0x1.cf99442a4b48dp+102},
-    {-0x1.0b3b2313bb170p+165,  0x1.d0cecaa0ff362p+109},
-    {-0x1.d4b2b8859b235p+173, -0x1.e862a74dd0311p+118},
-    {-0x1.9588a2a799bb1p+182, -0x1.0522b783a744ep+126},
+    { -0x1.43b8040000000p+22,    0x0.0000000000000p+0},
+    { -0x1.401552f480000p+33,    0x0.0000000000000p+0},
+    { -0x1.20fb4084fe100p+44,    0x0.0000000000000p+0},
+    { -0x1.da6474aa5211cp+54,   -0x1.0000000000000p+0},
+    { -0x1.3d1c667c5a1c2p+65,   -0x1.2400000000000p+6},
+    { -0x1.717256665ffb4p+75,  -0x1.1ca1880000000p+21},
+    { -0x1.8bc8bd0f2c52fp+85,   0x1.ec4fd03800000p+29},
+    { -0x1.8f4340b88e76bp+95,   0x1.d528e0f31f800p+41},
+    {-0x1.8f4340b88e76bp+105,   0x1.d528e0f31f800p+51},
+    {-0x1.87131fa4c58acp+115,   0x1.9289ca56231aap+61},
+    {-0x1.7cc35e8f2d555p+125,  -0x1.504d5efe89495p+69},
+    {-0x1.6556597dde4b5p+135,  -0x1.8f9c9c6660571p+79},
+    {-0x1.485f99bcea86bp+145,  -0x1.acce2aae45020p+91},
+    {-0x1.2c797a6d1d99cp+155, -0x1.2b5fa68df6a51p+101},
+    {-0x1.0b5112aa93159p+165,  0x1.a3534f2667a54p+110},
+    {-0x1.d98c1e912b8ebp+174,  0x1.9ad414b6889b5p+119},
+    {-0x1.8f17d6c2d8758p+184,  0x1.e07878e9ab41cp+128},
+    {-0x1.4ec93f67f3149p+194,  0x1.cc343db811a59p+136},
+    {-0x1.12f4c8531f63ap+204, -0x1.72c14309f2704p+149},
 };
 }
 
@@ -173,13 +246,14 @@ constexpr double invP[19] = {
 
 namespace FP8 {
 constexpr double invP[19] = {
-    0x1.e1709a3611655p-21, 0x1.0080301005018p-30, 0x1.3850970ef07b9p-40, 0x1.ffb252d5b63e6p-50, 0x1.ef40ad1677488p-59,
-    0x1.f038c97b34e2fp-68, 0x1.f32581bdd19d6p-77, 0x1.fc13db17bc6d5p-86, 0x1.04a832d64f39ap-94, 0x1.0fce2774976fbp-103,
-    0x1.1dc2221f1c51bp-112, 0x1.302cd946e7533p-121, 0x1.4521822aa7184p-130, 0x1.6475de320d42ap-139, 0x1.8a2f679c884e2p-148,
-    0x1.b5cb23a9f657ep-157, 0x1.ea7b6503e103cp-166, 0x1.17a6b5e36c568p-174, 0x1.4335687788312p-183};
+    0x1.94e504ced568fp-23, 0x1.997e4ff4b4f12p-34, 0x1.c590c0ad928ecp-45, 0x1.144b62a3e8951p-55, 0x1.9d54e995463f5p-66,
+    0x1.62c77d2ca796bp-76, 0x1.4b2ba0f34f317p-86, 0x1.4848fcbaab304p-96, 0x1.4848fcbaab304p-106, 0x1.4f2891b7af89ep-116,
+    0x1.583c27c41b41dp-126, 0x1.6ecd4901fa69dp-136, 0x1.8f27c1fb144f4p-146, 0x1.b437787735118p-156, 0x1.ea532555f0e70p-166,
+    0x1.14c99bb573f30p-175, 0x1.486cb2d326ccbp-185, 0x1.878278c9a4911p-195, 0x1.dcb38fb8f1c64p-205};
 }
 
-template <Backend BACKEND> __forceinline__ double get_invP(unsigned NUM_MODULI) {
+template <Backend BACKEND>
+__forceinline__ double get_invP(unsigned NUM_MODULI) {
     if constexpr (BACKEND == Backend::INT8) return INT8::invP[NUM_MODULI - 2];
     else return FP8::invP[NUM_MODULI - 2];
 }
@@ -211,25 +285,25 @@ template <> inline constexpr float log2P<Backend::INT8, 19U> = 0x1.25df9a0000000
 template <> inline constexpr float log2P<Backend::INT8, 20U> = 0x1.34be220000000p+6F;
 
 // FP8
-template <> inline constexpr float log2P<Backend::FP8, 2U>  = 0x1.316bae0000000p+3F;
-template <> inline constexpr float log2P<Backend::FP8, 3U>  = 0x1.cff4720000000p+3F;
-template <> inline constexpr float log2P<Backend::FP8, 4U>  = 0x1.35b4840000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 5U>  = 0x1.8001c00000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 6U>  = 0x1.c862420000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 7U>  = 0x1.082e3e0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 8U>  = 0x1.2c258e0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 9U>  = 0x1.500b5c0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 10U> = 0x1.73e55c0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 11U> = 0x1.97a77e0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 12U> = 0x1.bb5d8a0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 13U> = 0x1.df01440000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 14U> = 0x1.014f6c0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 15U> = 0x1.130b780000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 16U> = 0x1.24c1280000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 17U> = 0x1.3673a80000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 18U> = 0x1.481fb60000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 19U> = 0x1.59beba0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 20U> = 0x1.6b53cc0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 2U>  = 0x1.556ae40000000p+3F;
+template <> inline constexpr float log2P<Backend::FP8, 3U>  = 0x1.0294120000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 4U>  = 0x1.59660e0000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 5U>  = 0x1.af1e960000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 6U>  = 0x1.013c400000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 7U>  = 0x1.2a1dec0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 8U>  = 0x1.5283a60000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 9U>  = 0x1.7a90940000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 10U> = 0x1.a290940000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 11U> = 0x1.ca71f80000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 12U> = 0x1.f24a7e0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 13U> = 0x1.0cf6580000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 14U> = 0x1.20b7e80000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 15U> = 0x1.3476520000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 16U> = 0x1.481ff20000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 17U> = 0x1.5bc6540000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 18U> = 0x1.6f47fa0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 19U> = 0x1.82c6300000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 20U> = 0x1.9634c40000000p+6F;
 
 //==========
 // q[i]*P[i]/p[i]
@@ -518,55 +592,55 @@ namespace FP8 {
 
 // qPi_1[i] = double(q[i]*P[i]/p[i]), where q[i]*P[i]/p[i] == 1 mod p[i]
 inline constexpr double qPi_1[19][20] = {
-    {0x1.0c00000000000p+16, 0x1.ff00200000000p+19},
-    {0x1.7764000000000p+24, 0x1.ff00200000000p+19, 0x1.f2c5400000000p+29},
-    {0x1.1df3c0b000000p+39, 0x1.37e3f37802000p+39, 0x1.5353068800000p+39, 0x1.41ded42800000p+39},
-    {0x1.6d0eb70b20000p+47, 0x1.09283a3ac0020p+47, 0x1.3db96496d0000p+47, 0x1.4c99f49408000p+48, 0x1.b412a4ced0000p+47},
-    {0x1.f1b859e448000p+55, 0x1.cb87f75e19160p+57, 0x1.a78fa4a778120p+57, 0x1.8be2432b37ea0p+57, 0x1.95aa7f76ea0e0p+57,
-     0x1.342ec14351280p+57},
-    {0x1.27ea1263b6a59p+66, 0x1.4dc944c8eb8d6p+66, 0x1.6f3654a282c48p+64, 0x1.69d17d2f7c9dcp+63, 0x1.2ce880a500f64p+64,
-     0x1.b3680e68c9e2fp+65, 0x1.0696d67ee9c37p+67},
-    {0x1.1831e11b270eep+75, 0x1.f61ae6add09f3p+75, 0x1.039624ea25af6p+76, 0x1.882bc9e299511p+75, 0x1.37bfdfa674482p+75,
-     0x1.4d939784353d5p+72, 0x1.082245bce254dp+75, 0x1.3ab2ae0e8afd9p+75},
-    {0x1.fd51d91acadf6p+84, 0x1.047ee39966b09p+84, 0x1.3ffcc17414d86p+82, 0x1.12d8fb4c1ba76p+80, 0x1.55c45f77cb5aap+83,
-     0x1.b2fff53c8ba11p+84, 0x1.a305b35621611p+84, 0x1.13b7249d293fbp+81, 0x1.12e6b858e32f3p+83},
-    {0x1.82f39b11b12e1p+93, 0x1.0e93e98d1fe43p+93, 0x1.f6543fcc6761bp+89, 0x1.f3dcdd115998ep+93, 0x1.14c51aa52d188p+90,
-     0x1.b910b15b01052p+92, 0x1.f7d61f3147988p+87, 0x1.2a5a3c1a053a3p+93, 0x1.b3df3cf7069a2p+92, 0x1.5aa7de2ab7334p+90},
-    {0x1.e553c81c6185fp+99, 0x1.9b96b8790cf5bp+101, 0x1.1f073c432f548p+100, 0x1.db58c69c4f38ap+102, 0x1.1bef826d9796cp+98,
-     0x1.2affd32056a19p+102, 0x1.8106ef4246b88p+101, 0x1.f8048e5dc8f9fp+101, 0x1.80709a9ef6dd9p+102, 0x1.b8ac418c8e71cp+99,
-     0x1.8cc82d22940d2p+102},
-    {0x1.5602a250cd907p+111, 0x1.5802ce9d69e14p+103, 0x1.5004299fe1deap+106, 0x1.8c8175b3e98c7p+111, 0x1.314c5b113a9a5p+109,
-     0x1.ae1161cc0cff2p+111, 0x1.bb6bfd2112143p+110, 0x1.37cb8e2b16b3bp+110, 0x1.63a338555fb78p+110, 0x1.b9376a78d5c72p+109,
-     0x1.6c544f16498d1p+111, 0x1.a5f2f8de839ecp+105},
-    {0x1.a82ecb43cd9d2p+119, 0x1.011d6fc30dc66p+120, 0x1.3babe91ab3b1ap+116, 0x1.269dfbe14f0fep+120, 0x1.77104de0aa7e9p+116,
-     0x1.0e7042ccc6c50p+119, 0x1.76692127a91b7p+118, 0x1.45164481a46ecp+115, 0x1.7fcaceed33072p+115, 0x1.19841d3607044p+120,
-     0x1.8caebaa4bbaecp+120, 0x1.1b24d44950c02p+118, 0x1.5b982b6f0da64p+120},
-    {0x1.74690f706d0d0p+129, 0x1.91f47d5346392p+129, 0x1.e84b3bd868a54p+127, 0x1.2d08aaa0eebc3p+129, 0x1.b931309bc06fep+127,
-     0x1.db886ee7bca4fp+125, 0x1.a6dbe7821952ap+128, 0x1.e3213480fdd40p+128, 0x1.4f02ff63a99ecp+128, 0x1.0d06d58d9abbap+129,
-     0x1.9dcf4cbcc8a2bp+127, 0x1.8adbafd009272p+129, 0x1.e114d2475679fp+128, 0x1.033812d2e53f0p+129},
-    {0x1.570e37e97c0ebp+136, 0x1.57494ec541c10p+136, 0x1.25db7628d568bp+136, 0x1.d6739778ab34fp+137, 0x1.01afe6c1372c5p+138,
-     0x1.9e4683dffe6c7p+137, 0x1.28774d33b3767p+138, 0x1.4231544b614d0p+137, 0x1.0d042612ff001p+136, 0x1.5c8b976aaa575p+138,
-     0x1.0fd8b417d71a3p+138, 0x1.707591c92df99p+137, 0x1.505c87ad60463p+137, 0x1.9b75d2f857218p+136, 0x1.c5873263799b7p+134},
-    {0x1.3c54b1045b50fp+146, 0x1.dea3535bd2048p+146, 0x1.c06d2e07bfe99p+146, 0x1.62427685a1c14p+146, 0x1.3271d7751de2fp+147,
-     0x1.50e9eca198466p+146, 0x1.61fcbd7664752p+143, 0x1.6b37a7bb4f5f3p+145, 0x1.fbb1eaa327812p+143, 0x1.3a85a4d6cea29p+147,
-     0x1.233419231d126p+146, 0x1.83d1a602e7dfdp+144, 0x1.608fb6b637036p+146, 0x1.9403bff5d5d67p+146, 0x1.461b07a497b86p+147,
-     0x1.cba159665e773p+143},
-    {0x1.cb1f870cdce74p+155, 0x1.a1830bab6e3edp+154, 0x1.b7e5de673dbc8p+155, 0x1.11c2b6dac3edap+156, 0x1.1b1af7d79714ep+156,
-     0x1.1551e40423762p+155, 0x1.071119eda75c0p+156, 0x1.1b82ce9921c79p+155, 0x1.ffe22864b4154p+155, 0x1.8aca320b6ea74p+155,
-     0x1.ea3f4b6120dd2p+155, 0x1.3ac2f18e13a16p+151, 0x1.b1375e0a34ae5p+155, 0x1.dec713787681ap+155, 0x1.2d50c98d9eb17p+155,
-     0x1.1e75a68aae4b8p+156, 0x1.2d57320ca6f54p+153},
-    {0x1.d4b279b3a62b2p+164, 0x1.8a9551cb223ffp+162, 0x1.77f56dd1b3d4bp+163, 0x1.4e46ee15a31aap+163, 0x1.f6d2653a03de4p+164,
-     0x1.85fc4a6b30f87p+164, 0x1.46533c5e3b219p+161, 0x1.f2c2de6330ed1p+164, 0x1.a904fd427f920p+162, 0x1.b4feb7909e30ep+164,
-     0x1.2d84f0d516e01p+164, 0x1.f23ef31370cccp+164, 0x1.f63d1d3373d83p+163, 0x1.2d4333d61c228p+163, 0x1.e0ac26f947c02p+163,
-     0x1.6827e413f4f58p+164, 0x1.f4d73ba1eccd4p+163, 0x1.8a1f332c39756p+164},
-    {0x1.d064ea13124efp+173, 0x1.d1f3ac70d2baap+172, 0x1.aa443d42e699ap+173, 0x1.720dde174c85dp+170, 0x1.47b6b715bcc11p+173,
-     0x1.85d7eb43170e6p+172, 0x1.c345600063459p+171, 0x1.0a1e0e3cc5394p+173, 0x1.7c2d367fb654ap+173, 0x1.820abceb38fb4p+173,
-     0x1.d1d59ab7e2a9ap+171, 0x1.03da6974a6f6bp+173, 0x1.6696927eb35d9p+169, 0x1.cbe445e3d49d9p+172, 0x1.210c17e4c258bp+172,
-     0x1.bd6a41e0d5c80p+171, 0x1.c265c5dd2076fp+173, 0x1.ec4970954aff9p+168, 0x1.e45b2f93c319bp+169},
-    {0x1.73a56a837f7c3p+181, 0x1.72498284889e9p+182, 0x1.65d944ac669f3p+182, 0x1.8e4cf8a364c35p+182, 0x1.9cabcee313387p+180,
-     0x1.d3a0f1c2b713bp+181, 0x1.ef36214ce9d0ep+180, 0x1.13aad62c85abfp+181, 0x1.dbacfde5abab1p+181, 0x1.22f1ac9d2e29ep+182,
-     0x1.828988c975da7p+182, 0x1.aa5a080c322e5p+177, 0x1.28c5eb96dc02cp+180, 0x1.96615f1e98fb9p+179, 0x1.9052cd84021a4p+182,
-     0x1.8be62641331b4p+181, 0x1.c265c5dd2076fp+173, 0x1.3daed1344ef9ap+182, 0x1.f9c9c5bbf032ep+179, 0x1.bb10f26e4ca76p+180},
+    {0x1.4716e80000000p+21, 0x1.4059280000000p+21},
+    {0x1.7768718000000p+32, 0x1.2c164f4780000p+33, 0x1.30c03bc400000p+32},
+    {0x1.1b90b801b3400p+42, 0x1.f54d67ed4f800p+41, 0x1.12485b535f200p+43, 0x1.24937dd37d000p+40},
+    {0x1.cb92e5aa7021ep+53, 0x1.ad14489be7f4cp+53, 0x1.d015a9a0ee4f9p+54, 0x1.4a33a585eb974p+54, 0x1.7120ef69e0867p+53},
+    {0x1.1669c11536b27p+63, 0x1.bde102231596bp+64, 0x1.5833cff3d2b37p+64, 0x1.4949a84f48a9ep+62, 0x1.c27b7edb9922fp+64,
+     0x1.b892cb592db80p+64},
+    {0x1.5ed3ffbbbceacp+73, 0x1.c63d8b06da5f0p+73, 0x1.e77cb33ce03e8p+73, 0x1.f8515024bd2bdp+73, 0x1.c21ae8e1d8afcp+69,
+     0x1.cf17143943c37p+74, 0x1.98c69c1c4c284p+72},
+    {0x1.6d49d9e32452fp+84, 0x1.246756f24b297p+82, 0x1.e3ee7e3cc6d1ep+83, 0x1.60f93899c8f75p+85, 0x1.5a93745d1636ap+80,
+     0x1.0dbc0b69b5ad0p+85, 0x1.7ed87e3a73d58p+85, 0x1.c5263df991ba3p+84},
+    {0x1.12366621fdd4fp+95, 0x1.4e03a5fa3c8abp+94, 0x1.916e7974a906fp+94, 0x1.9f06a2882f4b5p+94, 0x1.b13a33a5afc04p+90,
+     0x1.8ae355843b5f2p+95, 0x1.5406a1fb60a65p+92, 0x1.e4cb024689fa4p+93, 0x1.5ef2ffa4744d9p+94},
+    {0x1.75d1ffd26efeap+103, 0x1.79c11417f53b5p+104, 0x1.a0cf801ed9c00p+104, 0x1.41182e18a585cp+105, 0x1.4f5f052c9cd32p+103,
+     0x1.6c8e905db7001p+105, 0x1.353c7513fc2e7p+105, 0x1.3617c32f6d034p+105, 0x1.230a5d0668580p+105, 0x1.c1f34a6ffc8ccp+104},
+    {0x1.80658931421d8p+112, 0x1.79cc03737ca98p+114, 0x1.33d6ab8e37a02p+115, 0x1.82a211297a0e8p+114, 0x1.866073f4bc0d5p+115,
+     0x1.cfeb4d5e4c233p+114, 0x1.5832bc5c3bb44p+115, 0x1.1e9f2b071d43dp+113, 0x1.083ff92145ca1p+115, 0x1.57560a07e86d9p+115,
+     0x1.61a4d193782fap+115},
+    {0x1.7d3d29afa99adp+124, 0x1.2d20f0da3a735p+125, 0x1.49ce8478fb661p+124, 0x1.b919b5ad7afd6p+124, 0x1.8a2093385f0c5p+123,
+     0x1.b0c61ece7df36p+124, 0x1.29761439c724dp+125, 0x1.f3d115363a1b8p+123, 0x1.c0378362686a6p+120, 0x1.37f912b9cf64ap+125,
+     0x1.84bc3ac3b0b50p+119, 0x1.51fd471927ba2p+125},
+    {0x1.6614d99fee011p+134, 0x1.5eb478be48d7cp+133, 0x1.401a880b5d518p+134, 0x1.eebeb7fe28014p+130, 0x1.af86953098668p+134,
+     0x1.047fa667b9cd1p+135, 0x1.3901d1ee256d2p+135, 0x1.a0f2a3b1e723dp+133, 0x1.3386490d28a18p+135, 0x1.6f1bb5f04f5f6p+133,
+     0x1.7614f8de1e90bp+134, 0x1.8f4585a170093p+134, 0x1.64f728a63a800p+131},
+    {0x1.43dc351b21f1fp+139, 0x1.8eafa35cf7322p+144, 0x1.e7c6c5449dbb5p+143, 0x1.94eabd4c15b3dp+142, 0x1.081af04d9fd7bp+142,
+     0x1.ff63b3c527ac9p+144, 0x1.04efe91b29849p+144, 0x1.0c34e172dcf56p+144, 0x1.017c477b1a87ep+145, 0x1.4a4c292385e68p+144,
+     0x1.35b64ea3e3119p+145, 0x1.da47d50fd4a8ep+144, 0x1.47592cd66eb8fp+145, 0x1.1e2625a9cb025p+143},
+    {0x1.7bb1117ad9620p+154, 0x1.d8d0c4d13f9d4p+153, 0x1.08b6df6755dfdp+153, 0x1.e82b66ad1f569p+154, 0x1.ab34dca9c1eb4p+154,
+     0x1.e03b8386efeacp+154, 0x1.598eec8010045p+153, 0x1.ddb105d73e3a4p+153, 0x1.173d982fe0081p+155, 0x1.1cec30d6f7d19p+155,
+     0x1.7f74ff448ce3ep+153, 0x1.28dba49a88d4cp+155, 0x1.06f44c810e2efp+155, 0x1.d607c0deec322p+152, 0x1.27aa13ec992a5p+154},
+    {0x1.619a0c8959899p+162, 0x1.8a044e0a9a730p+164, 0x1.eb55ad7f4dceap+164, 0x1.c27dd3dc95d8cp+163, 0x1.90bc8b7595122p+162,
+     0x1.01bfadc47224ep+162, 0x1.8fbe1e0f2b584p+162, 0x1.265d7a117a874p+162, 0x1.ae9ae1d906b3fp+159, 0x1.0ded5d593d854p+164,
+     0x1.9eb35f1046f44p+163, 0x1.f1a1f71913dd2p+162, 0x1.421d7f2f0a35bp+164, 0x1.ec059458b3503p+163, 0x1.7c93a977149cep+164,
+     0x1.ab3cba132616ap+162},
+    {0x1.71368ce752afep+174, 0x1.52b51cb364cdep+174, 0x1.b60086f88e8fcp+174, 0x1.a58e98a656673p+174, 0x1.c34ae71146e70p+173,
+     0x1.95675035f8093p+172, 0x1.4fcf4cd318aa4p+174, 0x1.c7d942878b3dfp+171, 0x1.ca6b643845ec0p+174, 0x1.3db3c181e4f90p+174,
+     0x1.cbdb04ecf0decp+173, 0x1.e19f32dc0e005p+173, 0x1.65bf5daf7803ep+173, 0x1.6c58382a0c4afp+172, 0x1.231a4d42045f6p+168,
+     0x1.aa3e9d571ccf2p+173, 0x1.e055ad8a804acp+173},
+    {0x1.b27f75466e0f9p+183, 0x1.621b68e9251d8p+181, 0x1.260c41305dbf2p+183, 0x1.0e04ea0d50221p+184, 0x1.502daa65b0b36p+183,
+     0x1.334388bc28fd8p+183, 0x1.0b9f8b1425dc3p+184, 0x1.98ea73f77b12ep+183, 0x1.a206229efc012p+183, 0x1.0c87ca409a251p+184,
+     0x1.84598edfcd45bp+180, 0x1.d38b1bf2e679cp+183, 0x1.0ec4c91da2936p+182, 0x1.89946188621e7p+180, 0x1.fada3eebfb22cp+183,
+     0x1.6659f8c210339p+183, 0x1.fae58bd553483p+180, 0x1.d225ee16e6e07p+180},
+    {0x1.32c26c35e0c1bp+193, 0x1.3662bc596b811p+186, 0x1.7848774e05f58p+192, 0x1.35fafe7b1b7f3p+193, 0x1.5e850994e3178p+191,
+     0x1.a78e9925d39aep+193, 0x1.ffdc5aef2f697p+193, 0x1.23251891f0906p+193, 0x1.a16dea7140edcp+193, 0x1.454e0c5c41724p+194,
+     0x1.dea5b95820935p+193, 0x1.df835c19a3082p+192, 0x1.e38a8f423986fp+192, 0x1.85ee7a46786f0p+191, 0x1.9f2d7bb62fe8ep+193,
+     0x1.ddbdabb147c49p+192, 0x1.4dadc4b33f9cdp+193, 0x1.3658aa5057b1cp+192, 0x1.3e06ff23447dap+194},
+    {0x1.ade5ee77f0e41p+203, 0x1.88550cb08d358p+202, 0x1.046d7958b7b5cp+203, 0x1.1b6eb0df07d9cp+203, 0x1.1fe0c31e87821p+202,
+     0x1.9b546278fbe84p+200, 0x1.5b8e40d012380p+202, 0x1.06acb51bd61c7p+204, 0x1.d3ee658646457p+203, 0x1.ecfce32d0947ap+202,
+     0x1.0ca6aecd42a85p+204, 0x1.8f55a561df044p+202, 0x1.e8af0f54116dbp+203, 0x1.38a64119b057cp+203, 0x1.45228c2a8e93ep+202,
+     0x1.5eb6661648a28p+203, 0x1.44f9cc4f0d1bcp+202, 0x1.bc22aeaba4e8cp+203, 0x1.3490c4338f686p+202, 0x1.c9b724b01e562p+203},
 };
 
 // idx = NUM_MODULI - threshold<Backend::FP8>::P_is_double - 1
@@ -574,229 +648,229 @@ inline constexpr double qPi_1[19][20] = {
 // qPi_2[idx][i][2] = double(q[i]*P[i]/p[i] - qPi_2[idx][i][1])
 inline constexpr double2 qPi_2[15][20] = {
     {
-     {0x1.f1b859e448000p+55, 0x0.0000000000000p+0},
-     {0x1.cb87f75e19000p+57, 0x1.6008000000000p+13},
-     {0x1.a78fa4a778000p+57, 0x1.2000000000000p+13},
-     {0x1.8be2432b37000p+57, 0x1.d400000000000p+16},
-     {0x1.95aa7f76ea000p+57, 0x1.c000000000000p+12},
-     {0x1.342ec14351000p+57, 0x1.4000000000000p+14},
+     {0x1.1669c11534000p+63, 0x1.5938a70000000p+24},
+     {0x1.bde1022314000p+64, 0x1.96af390000000p+24},
+     {0x1.5833cff3d2000p+64, 0x1.66e6d60000000p+23},
+     {0x1.4949a84f48000p+62, 0x1.53bf800000000p+21},
+     {0x1.c27b7edb98000p+64, 0x1.22edda0000000p+24},
+     {0x1.b892cb592c000p+64, 0x1.b7ffc70000000p+24},
      },
     {
-     {0x1.27ea1263b6000p+66, 0x1.4b1c000000000p+25},
-     {0x1.4dc944c8ea000p+66, 0x1.8d5d004000000p+26},
-     {0x1.6f3654a280000p+64, 0x1.6242000000000p+25},
-     {0x1.69d17d2f70000p+63, 0x1.93b8000000000p+26},
-     {0x1.2ce880a500000p+64, 0x1.ec78000000000p+23},
-     {0x1.b3680e68c8000p+65, 0x1.e2ec000000000p+25},
-     {0x1.0696d67ee9000p+67, 0x1.86dc000000000p+26},
+     {0x1.5ed3ffbbbc000p+73, 0x1.d588495a00000p+32},
+     {0x1.c63d8b06d8000p+73, 0x1.2f80a5e5c0000p+34},
+     {0x1.e77cb33ce0000p+73, 0x1.f4388df000000p+30},
+     {0x1.f8515024bc000p+73, 0x1.2bcc55ff80000p+33},
+     {0x1.c21ae8e1c0000p+69, 0x1.8afc3a1000000p+33},
+     {0x1.cf17143942000p+74, 0x1.c376e53280000p+34},
+     {0x1.98c69c1c48000p+72, 0x1.0a105bc340000p+34},
      },
     {
-     {0x1.1831e11b26000p+75, 0x1.0ee0638000000p+35},
-     {0x1.f61ae6add0000p+75, 0x1.3e6fc70040000p+34},
-     {0x1.039624ea25000p+76, 0x1.5ecb190000000p+35},
-     {0x1.882bc9e298000p+75, 0x1.5114ae0000000p+35},
-     {0x1.37bfdfa674000p+75, 0x1.2060e20000000p+33},
-     {0x1.4d93978430000p+72, 0x1.4f520e0000000p+34},
-     {0x1.082245bce2000p+75, 0x1.535d4a0000000p+33},
-     {0x1.3ab2ae0e8a000p+75, 0x1.fb20870000000p+34},
+     {0x1.6d49d9e324000p+84, 0x1.4bbff6cc8d000p+42},
+     {0x1.246756f240000p+82, 0x1.652e706077600p+45},
+     {0x1.e3ee7e3cc0000p+83, 0x1.b4778ce87cd80p+45},
+     {0x1.60f93899c8000p+85, 0x1.ee9b384cf3100p+44},
+     {0x1.5a93745d00000p+80, 0x1.636a623d1de00p+44},
+     {0x1.0dbc0b69b4000p+85, 0x1.ad049d67fe280p+45},
+     {0x1.7ed87e3a72000p+85, 0x1.d579edb4f1100p+45},
+     {0x1.c5263df990000p+84, 0x1.ba31f47883400p+44},
      },
     {
-     {0x1.fd51d91aca000p+84, 0x1.beb5388b80000p+43},
-     {0x1.047ee39966000p+84, 0x1.611284db00200p+43},
-     {0x1.3ffcc17414000p+82, 0x1.b0cfe32200000p+41},
-     {0x1.12d8fb4c10000p+80, 0x1.74eb178600000p+43},
-     {0x1.55c45f77ca000p+83, 0x1.5aa5f5b980000p+43},
-     {0x1.b2fff53c8b000p+84, 0x1.4218f46300000p+43},
-     {0x1.a305b35621000p+84, 0x1.84583fad00000p+42},
-     {0x1.13b7249d28000p+81, 0x1.3facd88400000p+41},
-     {0x1.12e6b858e2000p+83, 0x1.2f29d7d100000p+43},
+     {0x1.12366621fc000p+95, 0x1.d4f5b5217379ap+55},
+     {0x1.4e03a5fa3c000p+94, 0x1.1556efa9b118ep+53},
+     {0x1.916e7974a8000p+94, 0x1.06ea90bb8cadap+54},
+     {0x1.9f06a2882c000p+94, 0x1.a5a671b542a11p+55},
+     {0x1.b13a33a580000p+90, 0x1.7e0210788d45dp+55},
+     {0x1.8ae355843a000p+95, 0x1.5f1b2248c5a3bp+55},
+     {0x1.5406a1fb60000p+92, 0x1.4c93613ee524ep+51},
+     {0x1.e4cb024688000p+93, 0x1.fa422f0ca6ad2p+53},
+     {0x1.5ef2ffa474000p+94, 0x1.36246dd4e9796p+52},
      },
     {
-     {0x1.82f39b11b1000p+93, 0x1.70bb2331ca000p+50},
-     {0x1.0e93e98d1f000p+93, 0x1.c85bc04e14801p+52},
-     {0x1.f6543fcc60000p+89, 0x1.d86bb16c32000p+51},
-     {0x1.f3dcdd1159000p+93, 0x1.31b661270f000p+52},
-     {0x1.14c51aa528000p+90, 0x1.4620a84aab400p+52},
-     {0x1.b910b15b00000p+92, 0x1.051b206ad6000p+52},
-     {0x1.f7d61f3140000p+87, 0x1.e62100c690000p+49},
-     {0x1.2a5a3c1a05000p+93, 0x1.d17d53294a000p+50},
-     {0x1.b3df3cf706000p+92, 0x1.3433de464d000p+51},
-     {0x1.5aa7de2ab0000p+90, 0x1.ccce19121bc00p+52},
+     {0x1.75d1ffd268000p+103, 0x1.bfa71b6c1e59ep+65},
+     {0x1.79c11417f4000p+104, 0x1.3b4e1cdb629edp+64},
+     {0x1.a0cf801ed8000p+104, 0x1.c003a55da46cep+64},
+     {0x1.41182e18a4000p+105, 0x1.85c7795602231p+65},
+     {0x1.4f5f052c98000p+103, 0x1.34c96a7ec9372p+65},
+     {0x1.6c8e905db6000p+105, 0x1.00129f156d7a6p+65},
+     {0x1.353c7513fc000p+105, 0x1.734a880f2153cp+62},
+     {0x1.3617c32f6c000p+105, 0x1.033f172cfe376p+65},
+     {0x1.230a5d0668000p+105, 0x1.5fee47e93c8b4p+63},
+     {0x1.c1f34a6ffc000p+104, 0x1.19722a3b73f02p+63},
      },
     {
-     {0x1.e553c81c60000p+99, 0x1.85f7819d23628p+59},
-     {0x1.9b96b8790c000p+101, 0x1.eb5c650aa2264p+60},
-     {0x1.1f073c432c000p+100, 0x1.aa3e80fc660e6p+61},
-     {0x1.db58c69c4f000p+102, 0x1.c53e3208b4108p+59},
-     {0x1.1bef826d90000p+98, 0x1.e5aff7cfc3d2cp+60},
-     {0x1.2affd32056000p+102, 0x1.431cc2dd89d50p+61},
-     {0x1.8106ef4246000p+101, 0x1.70f623cdeab90p+60},
-     {0x1.f8048e5dc8000p+101, 0x1.f3e3e18630128p+60},
-     {0x1.80709a9ef6000p+102, 0x1.bb11b4e44ac76p+61},
-     {0x1.b8ac418c88000p+99, 0x1.9c6e9949f02eep+61},
-     {0x1.8cc82d2294000p+102, 0x1.a31fcbafa4980p+57},
+     {0x1.8065893140000p+112, 0x1.0ec2b170dbcb2p+73},
+     {0x1.79cc037378000p+114, 0x1.2a5e916129105p+76},
+     {0x1.33d6ab8e34000p+115, 0x1.d012bb3ed733ap+76},
+     {0x1.82a2112978000p+114, 0x1.073d7ab44a8a7p+75},
+     {0x1.866073f4bc000p+115, 0x1.a9727bb90374fp+70},
+     {0x1.cfeb4d5e48000p+114, 0x1.08ca6e0775b3ap+76},
+     {0x1.5832bc5c38000p+115, 0x1.da1ff0f6b4b9bp+76},
+     {0x1.1e9f2b0710000p+113, 0x1.a87aba32c938ep+76},
+     {0x1.083ff92144000p+115, 0x1.ca09022f63b0dp+75},
+     {0x1.57560a07e8000p+115, 0x1.b62a299879ce1p+73},
+     {0x1.61a4d19378000p+115, 0x1.7ccf2e4158150p+72},
      },
     {
-     {0x1.5602a250cd000p+111, 0x1.20d4c7e2c60cdp+70},
-     {0x1.5802ce9d00000p+103, 0x1.a7850aa1dfb02p+69},
-     {0x1.5004299fe0000p+106, 0x1.de99ba4ef3df3p+66},
-     {0x1.8c8175b3e9000p+111, 0x1.18d27b1e6314ap+70},
-     {0x1.314c5b1138000p+109, 0x1.4d278b9bbffb9p+70},
-     {0x1.ae1161cc0c000p+111, 0x1.fe4fe18deb726p+70},
-     {0x1.bb6bfd2112000p+110, 0x1.4292aa4ee1e30p+66},
-     {0x1.37cb8e2b16000p+110, 0x1.676085b6025fbp+69},
-     {0x1.63a338555e000p+110, 0x1.b78179bda10eap+70},
-     {0x1.b9376a78d4000p+109, 0x1.c721ad7d97642p+69},
-     {0x1.6c544f1649000p+111, 0x1.1a21c8f17f2afp+70},
-     {0x1.a5f2f8de80000p+105, 0x1.cf5c385bc4cc5p+66},
+     {0x1.7d3d29afa8000p+124, 0x1.9ad5d711034fbp+84},
+     {0x1.2d20f0da38000p+125, 0x1.39ab0c1c46e1bp+86},
+     {0x1.49ce8478f8000p+124, 0x1.b30bb3a7a3c49p+85},
+     {0x1.b919b5ad78000p+124, 0x1.7eacf4161c068p+85},
+     {0x1.8a20933850000p+123, 0x1.e18a376451a8cp+86},
+     {0x1.b0c61ece78000p+124, 0x1.7cd9059d2f303p+86},
+     {0x1.29761439c4000p+125, 0x1.92699450dd385p+86},
+     {0x1.f3d1153630000p+123, 0x1.437085978bf85p+86},
+     {0x1.c037836200000p+120, 0x1.a1a984d295b26p+86},
+     {0x1.37f912b9cc000p+125, 0x1.b253afc5b24a8p+86},
+     {0x1.84bc3ac300000p+119, 0x1.616a0f71af97ep+86},
+     {0x1.51fd471924000p+125, 0x1.dd128034d3c22p+86},
      },
     {
-     {0x1.a82ecb43cc000p+119, 0x1.9d1d042203844p+79},
-     {0x1.011d6fc30c000p+120, 0x1.c66617e04aa5ep+80},
-     {0x1.3babe91aa0000p+116, 0x1.3b19f6b872c1bp+80},
-     {0x1.269dfbe14e000p+120, 0x1.0fd9cf2fe1366p+80},
-     {0x1.77104de0a0000p+116, 0x1.4fd24540b5d6ap+79},
-     {0x1.0e7042ccc4000p+119, 0x1.627d9dc73baeap+80},
-     {0x1.76692127a8000p+118, 0x1.1b71b501e4a34p+78},
-     {0x1.4516448180000p+115, 0x1.23762a397b834p+80},
-     {0x1.7fcaceed00000p+115, 0x1.9838ccbd2965fp+80},
-     {0x1.19841d3606000p+120, 0x1.0440bb4d14b58p+80},
-     {0x1.8caebaa4ba000p+120, 0x1.aeb9ed06f0104p+80},
-     {0x1.1b24d44950000p+118, 0x1.804cf621bff33p+77},
-     {0x1.5b982b6f0c000p+120, 0x1.a64604e3d67f2p+80},
+     {0x1.6614d99fe8000p+134, 0x1.804366599cffcp+96},
+     {0x1.5eb478be40000p+133, 0x1.1af89f59e7d83p+96},
+     {0x1.401a880b58000p+134, 0x1.54603412b3a67p+96},
+     {0x1.eebeb7fe00000p+130, 0x1.400a2cb41e94bp+95},
+     {0x1.af86953098000p+134, 0x1.9a1e9cbc27b80p+92},
+     {0x1.047fa667b8000p+135, 0x1.cd110267b2879p+95},
+     {0x1.3901d1ee24000p+135, 0x1.6d1b3cfdb3b33p+95},
+     {0x1.a0f2a3b1e0000p+133, 0x1.c8f5f437f3bf9p+95},
+     {0x1.3386490d28000p+135, 0x1.42f080b9cb85dp+94},
+     {0x1.6f1bb5f040000p+133, 0x1.ebec19513c95ap+96},
+     {0x1.7614f8de18000p+134, 0x1.a42cb31cdd20bp+96},
+     {0x1.8f4585a170000p+134, 0x1.25c6522688c74p+89},
+     {0x1.64f728a600000p+131, 0x1.d3ffe1da44487p+96},
      },
     {
-     {0x1.74690f706c000p+129, 0x1.0d006f3ebb503p+89},
-     {0x1.91f47d5346000p+129, 0x1.c8cedf19d30dbp+86},
-     {0x1.e84b3bd868000p+127, 0x1.4a75164fa10f0p+86},
-     {0x1.2d08aaa0ee000p+129, 0x1.7869b7f2da929p+88},
-     {0x1.b931309bc0000p+127, 0x1.bf93d3c11ea52p+85},
-     {0x1.db886ee7a0000p+125, 0x1.ca4ebfa87b0afp+89},
-     {0x1.a6dbe78218000p+128, 0x1.52a4e14dadba5p+88},
-     {0x1.e3213480fc000p+128, 0x1.d40750e786788p+88},
-     {0x1.4f02ff63a8000p+128, 0x1.9ec325353c942p+88},
-     {0x1.0d06d58d9a000p+129, 0x1.7742a0aeb646ep+88},
-     {0x1.9dcf4cbcc8000p+127, 0x1.455f572d49eb5p+86},
-     {0x1.8adbafd008000p+129, 0x1.27235cffe8d1cp+89},
-     {0x1.e114d24754000p+128, 0x1.3cfa3c3767881p+89},
-     {0x1.033812d2e4000p+129, 0x1.3f03a11467bffp+89},
+     {0x1.43dc351b00000p+139, 0x1.0f8f7e53a1e3dp+104},
+     {0x1.8eafa35cf0000p+144, 0x1.cc869b9220950p+106},
+     {0x1.e7c6c54490000p+143, 0x1.b76ade2614d3ep+106},
+     {0x1.94eabd4c00000p+142, 0x1.5b3d27908d169p+106},
+     {0x1.081af04d80000p+142, 0x1.fd7b66d1e31e5p+106},
+     {0x1.ff63b3c520000p+144, 0x1.eb2548f4c6dcfp+106},
+     {0x1.04efe91b28000p+144, 0x1.849578be16ca7p+104},
+     {0x1.0c34e172d8000p+144, 0x1.3d5869abe451bp+106},
+     {0x1.017c477b18000p+145, 0x1.43eee8d647651p+106},
+     {0x1.4a4c292380000p+144, 0x1.79a031515fee5p+106},
+     {0x1.35b64ea3e0000p+145, 0x1.88c7fe3fbb742p+106},
+     {0x1.da47d50fd0000p+144, 0x1.2a393d60356dbp+106},
+     {0x1.47592cd66c000p+145, 0x1.5c741afef132fp+106},
+     {0x1.1e2625a9c0000p+143, 0x1.604a0a000d27cp+106},
      },
     {
-     {0x1.570e37e978000p+136, 0x1.03abd095d4560p+98},
-     {0x1.57494ec540000p+136, 0x1.c10775309a562p+96},
-     {0x1.25db7628d0000p+136, 0x1.5a2dac8612970p+98},
-     {0x1.d6739778a8000p+137, 0x1.9a74782f8edf2p+98},
-     {0x1.01afe6c136000p+138, 0x1.2c4d2ff4be6aap+98},
-     {0x1.9e4683dffc000p+137, 0x1.36342b15d53b7p+98},
-     {0x1.28774d33b2000p+138, 0x1.7677c1050bd58p+98},
-     {0x1.4231544b60000p+137, 0x1.4d0533453bdf3p+97},
-     {0x1.0d042612f8000p+136, 0x1.c002b009f6ffap+98},
-     {0x1.5c8b976aaa000p+138, 0x1.5d42664811da0p+96},
-     {0x1.0fd8b417d6000p+138, 0x1.1a2f16b09c0a6p+98},
-     {0x1.707591c92c000p+137, 0x1.f993fe22e4773p+97},
-     {0x1.505c87ad60000p+137, 0x1.18cedcf8215e2p+95},
-     {0x1.9b75d2f850000p+136, 0x1.c85f628dc9f68p+98},
-     {0x1.c587326360000p+134, 0x1.99b71aca11a82p+98},
+     {0x1.7bb1117ad8000p+154, 0x1.620723191a4e8p+114},
+     {0x1.d8d0c4d130000p+153, 0x1.f3a7f5db13356p+116},
+     {0x1.08b6df6750000p+153, 0x1.77f5767cf962ap+115},
+     {0x1.e82b66ad18000p+154, 0x1.d5a572a252935p+116},
+     {0x1.ab34dca9c0000p+154, 0x1.eb39228787f5ep+114},
+     {0x1.e03b8386e8000p+154, 0x1.faae83c76f8c5p+116},
+     {0x1.598eec8010000p+153, 0x1.141143ba9bf7dp+107},
+     {0x1.ddb105d730000p+153, 0x1.c74785a835fbbp+116},
+     {0x1.173d982fe0000p+155, 0x1.02c6172205fe2p+110},
+     {0x1.1cec30d6f4000p+155, 0x1.e8c79fc1e65e4p+116},
+     {0x1.7f74ff4480000p+153, 0x1.9c7c47938ec65p+116},
+     {0x1.28dba49a88000p+155, 0x1.a98b4c0740a4dp+114},
+     {0x1.06f44c810c000p+155, 0x1.17766cf289021p+116},
+     {0x1.d607c0dee0000p+152, 0x1.86434b8c60892p+115},
+     {0x1.27aa13ec98000p+154, 0x1.2a4b805e85b7ap+114},
      },
     {
-     {0x1.3c54b10458000p+146, 0x1.a87ba0bb2e555p+107},
-     {0x1.dea3535bd0000p+146, 0x1.023ddc1441cb9p+107},
-     {0x1.c06d2e07bc000p+146, 0x1.f4c9859af09c9p+107},
-     {0x1.62427685a0000p+146, 0x1.c13d71e968a85p+106},
-     {0x1.3271d7751c000p+147, 0x1.e2ee33fd22722p+107},
-     {0x1.50e9eca198000p+146, 0x1.1983694868c87p+104},
-     {0x1.61fcbd7660000p+143, 0x1.1d46a3f511c67p+105},
-     {0x1.6b37a7bb48000p+145, 0x1.d7cb0b92662cep+107},
-     {0x1.fbb1eaa320000p+143, 0x1.e047dad596aa1p+105},
-     {0x1.3a85a4d6ce000p+147, 0x1.452066129281dp+106},
-     {0x1.233419231c000p+146, 0x1.125941cd28577p+106},
-     {0x1.83d1a602e0000p+144, 0x1.f7f206b2b7e46p+106},
-     {0x1.608fb6b634000p+146, 0x1.81b35d58a9dc5p+107},
-     {0x1.9403bff5d4000p+146, 0x1.d6750616e0b40p+106},
-     {0x1.461b07a496000p+147, 0x1.b85bf973caa26p+107},
-     {0x1.cba1596640000p+143, 0x1.e7733c2657e4fp+107},
+     {0x1.619a0c8950000p+162, 0x1.3132904e6eba8p+125},
+     {0x1.8a044e0a98000p+164, 0x1.397c74aaa317bp+125},
+     {0x1.eb55ad7f4c000p+164, 0x1.ce9c005ab5990p+124},
+     {0x1.c27dd3dc90000p+163, 0x1.762e229d6b57bp+125},
+     {0x1.90bc8b7590000p+162, 0x1.44891be3ab169p+124},
+     {0x1.01bfadc470000p+162, 0x1.126e1ae67688ep+123},
+     {0x1.8fbe1e0f20000p+162, 0x1.6b076bd1d588fp+125},
+     {0x1.265d7a1170000p+162, 0x1.50e8e5f0886e5p+125},
+     {0x1.ae9ae1d900000p+159, 0x1.acfbf4666943fp+121},
+     {0x1.0ded5d593c000p+164, 0x1.85429928c1277p+124},
+     {0x1.9eb35f1040000p+163, 0x1.bd104af2ae712p+125},
+     {0x1.f1a1f71910000p+162, 0x1.ee91e0a55cbc6p+123},
+     {0x1.421d7f2f08000p+164, 0x1.1ad5fc0f39cc6p+125},
+     {0x1.ec059458b0000p+163, 0x1.a81995a0e1650p+124},
+     {0x1.7c93a97714000p+164, 0x1.39cefce8a5a04p+123},
+     {0x1.ab3cba1320000p+162, 0x1.85a8e9ac00d1ep+124},
      },
     {
-     {0x1.cb1f870cdc000p+155, 0x1.ce8b1bfcd8982p+114},
-     {0x1.a1830bab68000p+154, 0x1.8fb3f280bc0f0p+116},
-     {0x1.b7e5de673c000p+155, 0x1.bc785437cab1bp+115},
-     {0x1.11c2b6dac2000p+156, 0x1.ed9ad8dcde87dp+116},
-     {0x1.1b1af7d796000p+156, 0x1.14e3a650d2508p+116},
-     {0x1.1551e40420000p+155, 0x1.bb13a84511652p+116},
-     {0x1.071119eda6000p+156, 0x1.5bfc505fd104ep+116},
-     {0x1.1b82ce9920000p+155, 0x1.c78f1861b7422p+115},
-     {0x1.ffe22864b4000p+155, 0x1.538ca5c61b3d3p+111},
-     {0x1.8aca320b6c000p+155, 0x1.539fef2a85992p+116},
-     {0x1.ea3f4b6120000p+155, 0x1.ba37c9bb9a25ep+114},
-     {0x1.3ac2f18e00000p+151, 0x1.3a1580aedab89p+115},
-     {0x1.b1375e0a34000p+155, 0x1.5ca421acba983p+114},
-     {0x1.dec7137874000p+155, 0x1.40d0ea461ef56p+116},
-     {0x1.2d50c98d9c000p+155, 0x1.58ba5c3eeac84p+116},
-     {0x1.1e75a68aae000p+156, 0x1.2e127643365d7p+114},
-     {0x1.2d57320ca0000p+153, 0x1.bd51a630c0ffdp+115},
+     {0x1.71368ce750000p+174, 0x1.57ed359c89d02p+135},
+     {0x1.52b51cb364000p+174, 0x1.9bc5b19ee9f0bp+133},
+     {0x1.b60086f88c000p+174, 0x1.47dc7d2eb0cadp+135},
+     {0x1.a58e98a654000p+174, 0x1.3399329ad819dp+135},
+     {0x1.c34ae71140000p+173, 0x1.b9bfef5531ad0p+135},
+     {0x1.95675035f0000p+172, 0x1.01264fff1d69ep+135},
+     {0x1.4fcf4cd318000p+174, 0x1.548b7cf7523aap+133},
+     {0x1.c7d9428780000p+171, 0x1.67bee9e87f90ep+134},
+     {0x1.ca6b643844000p+174, 0x1.ec01b9b7e9bd9p+134},
+     {0x1.3db3c181e4000p+174, 0x1.f1f0d980dc6a2p+133},
+     {0x1.cbdb04ecf0000p+173, 0x1.bd8dddb92534ep+132},
+     {0x1.e19f32dc08000p+173, 0x1.8012838f8791bp+135},
+     {0x1.65bf5daf78000p+173, 0x1.f26accbbdf97cp+126},
+     {0x1.6c58382a00000p+172, 0x1.895e6cb164362p+135},
+     {0x1.231a4d4200000p+168, 0x1.17d6cc5029b81p+130},
+     {0x1.aa3e9d5718000p+173, 0x1.33c6c6f6d26d8p+135},
+     {0x1.e055ad8a80000p+173, 0x1.2ae374326e37fp+131},
      },
     {
-     {0x1.d4b279b3a6000p+164, 0x1.592fa22749f3ep+121},
-     {0x1.8a9551cb20000p+162, 0x1.1ff9a8d754672p+123},
-     {0x1.77f56dd1b0000p+163, 0x1.ea58c329464f1p+124},
-     {0x1.4e46ee15a0000p+163, 0x1.8d50bf74ec1c6p+124},
-     {0x1.f6d2653a02000p+164, 0x1.de423735adbddp+124},
-     {0x1.85fc4a6b30000p+164, 0x1.f0d75fa3777afp+123},
-     {0x1.46533c5e30000p+161, 0x1.6432d299cc078p+124},
-     {0x1.f2c2de6330000p+164, 0x1.da1a6ac0bd2a5p+123},
-     {0x1.a904fd4278000p+162, 0x1.e47f8854b60c5p+124},
-     {0x1.b4feb7909e000p+164, 0x1.8716eec35e60cp+121},
-     {0x1.2d84f0d516000p+164, 0x1.c023872bc940cp+123},
-     {0x1.f23ef31370000p+164, 0x1.998cf1290a4dcp+123},
-     {0x1.f63d1d3370000p+163, 0x1.ec17d730e71c1p+124},
-     {0x1.2d4333d61c000p+163, 0x1.13c701cce738cp+120},
-     {0x1.e0ac26f944000p+163, 0x1.e00db7532d424p+124},
-     {0x1.6827e413f4000p+164, 0x1.eb0a08e18790fp+123},
-     {0x1.f4d73ba1ec000p+163, 0x1.9a7d5bee5137bp+122},
-     {0x1.8a1f332c38000p+164, 0x1.756079230aeebp+124},
+     {0x1.b27f754668000p+183, 0x1.83e24d23c4a5ep+145},
+     {0x1.621b68e920000p+181, 0x1.476000f7b40acp+143},
+     {0x1.260c413058000p+183, 0x1.6fc775f12442bp+145},
+     {0x1.0e04ea0d50000p+184, 0x1.10a566667eb1ap+141},
+     {0x1.502daa65b0000p+183, 0x1.66c282c937a5bp+142},
+     {0x1.334388bc28000p+183, 0x1.fb0a6309e8816p+142},
+     {0x1.0b9f8b1424000p+184, 0x1.dc3319a633883p+144},
+     {0x1.98ea73f778000p+183, 0x1.896f8511643e5p+144},
+     {0x1.a206229ef8000p+183, 0x1.0048cd464edddp+145},
+     {0x1.0c87ca4098000p+184, 0x1.12870e5b78526p+145},
+     {0x1.84598edfc0000p+180, 0x1.a8b53e48a2ef9p+143},
+     {0x1.d38b1bf2e0000p+183, 0x1.9e6e6005ccaaep+145},
+     {0x1.0ec4c91da0000p+182, 0x1.49b03ee8728ddp+143},
+     {0x1.8994618840000p+180, 0x1.10f39057b246ap+145},
+     {0x1.fada3eebf8000p+183, 0x1.915ed7a433155p+144},
+     {0x1.6659f8c210000p+183, 0x1.9c5b0dc2dc13ep+140},
+     {0x1.fae58bd540000p+180, 0x1.3482d08b76d33p+144},
+     {0x1.d225ee16c0000p+180, 0x1.370390b973b9cp+145},
      },
     {
-     {0x1.d064ea1312000p+173, 0x1.3bd9b34dec159p+131},
-     {0x1.d1f3ac70d0000p+172, 0x1.5d4f69861352ep+133},
-     {0x1.aa443d42e6000p+173, 0x1.33348f3003652p+132},
-     {0x1.720dde1740000p+170, 0x1.90ba587c2fa26p+133},
-     {0x1.47b6b715bc000p+173, 0x1.8217d19d8a301p+132},
-     {0x1.85d7eb4314000p+172, 0x1.8730e421a9a4ep+133},
-     {0x1.c345600060000p+171, 0x1.a2caaaa41ed43p+132},
-     {0x1.0a1e0e3cc4000p+173, 0x1.3946b96d83239p+133},
-     {0x1.7c2d367fb6000p+173, 0x1.528eab7888f87p+131},
-     {0x1.820abceb38000p+173, 0x1.f679a6e9b447bp+132},
-     {0x1.d1d59ab7e0000p+171, 0x1.54d07eb0422d0p+132},
-     {0x1.03da6974a6000p+173, 0x1.ed5941e7ebed4p+132},
-     {0x1.6696927ea0000p+169, 0x1.35d8e5caa1d46p+133},
-     {0x1.cbe445e3d4000p+172, 0x1.3b2c3b1961138p+131},
-     {0x1.210c17e4c0000p+172, 0x1.2c550c4c305bdp+133},
-     {0x1.bd6a41e0d0000p+171, 0x1.7200020c987b4p+133},
-     {0x1.c265c5dd20000p+173, 0x1.dba5047d5a946p+131},
-     {0x1.ec49709540000p+168, 0x1.5ff25b4509c2ap+131},
-     {0x1.e45b2f93c0000p+169, 0x1.8cd65ac4985e2p+130},
+     {0x1.32c26c35e0000p+193, 0x1.8366630155ea9p+152},
+     {0x1.3662bc5800000p+186, 0x1.6b810a97c49bdp+154},
+     {0x1.7848774e00000p+192, 0x1.7d5ed2a69e1d2p+154},
+     {0x1.35fafe7b18000p+193, 0x1.bf95aae47e536p+154},
+     {0x1.5e850994e0000p+191, 0x1.8bc0de6bfd67bp+152},
+     {0x1.a78e9925d0000p+193, 0x1.cd6d51de4e80ap+154},
+     {0x1.ffdc5aef28000p+193, 0x1.da5dec7c9e0bap+155},
+     {0x1.23251891f0000p+193, 0x1.20ba33758937cp+152},
+     {0x1.a16dea7140000p+193, 0x1.db8b257ec7ed6p+152},
+     {0x1.454e0c5c40000p+194, 0x1.723a7c350f41ep+154},
+     {0x1.dea5b95820000p+193, 0x1.26a0da3e32510p+152},
+     {0x1.df835c19a0000p+192, 0x1.84118e47c94c9p+153},
+     {0x1.e38a8f4230000p+192, 0x1.30dd7249b239dp+155},
+     {0x1.85ee7a4660000p+191, 0x1.86f00f90bb8b5p+155},
+     {0x1.9f2d7bb628000p+193, 0x1.fa376f0ba91dbp+155},
+     {0x1.ddbdabb140000p+192, 0x1.f122a1d836e9ap+154},
+     {0x1.4dadc4b338000p+193, 0x1.e7346bf0e42a0p+155},
+     {0x1.3658aa5050000p+192, 0x1.ec70c468f33a7p+154},
+     {0x1.3e06ff2344000p+194, 0x1.f682047ffe973p+152},
      },
     {
-     {0x1.73a56a837c000p+181, 0x1.be178c9441c0fp+142},
-     {0x1.7249828488000p+182, 0x1.3d1d94e0e620fp+141},
-     {0x1.65d944ac66000p+182, 0x1.3e6b4a542dc2dp+141},
-     {0x1.8e4cf8a364000p+182, 0x1.86982617c0c21p+141},
-     {0x1.9cabcee310000p+180, 0x1.9c35b73f21293p+141},
-     {0x1.d3a0f1c2b4000p+181, 0x1.89dbd6ec557b5p+142},
-     {0x1.ef36214ce8000p+180, 0x1.d0e530dabd06fp+140},
-     {0x1.13aad62c84000p+181, 0x1.abec630d09925p+141},
-     {0x1.dbacfde5a8000p+181, 0x1.d58937f13e54ep+142},
-     {0x1.22f1ac9d2e000p+182, 0x1.4ee8195f1cc36p+139},
-     {0x1.828988c974000p+182, 0x1.da7349324bdadp+142},
-     {0x1.aa5a080c00000p+177, 0x1.9172a105df214p+142},
-     {0x1.28c5eb96d8000p+180, 0x1.00b1aefa1c409p+142},
-     {0x1.96615f1e90000p+179, 0x1.1f72e674951dep+142},
-     {0x1.9052cd8402000p+182, 0x1.a3d34368db002p+138},
-     {0x1.8be6264130000p+181, 0x1.8da05c144375ep+142},
-     {0x1.c265c5dc00000p+173, 0x1.2076e9411f56ap+141},
-     {0x1.3daed1344e000p+182, 0x1.f33a989242cf6p+141},
-     {0x1.f9c9c5bbf0000p+179, 0x1.96e64210d85fcp+136},
-     {0x1.bb10f26e48000p+180, 0x1.29d94ed6a113cp+142},
+     {0x1.ade5ee77f0000p+203, 0x1.c82542543bbc2p+162},
+     {0x1.88550cb080000p+202, 0x1.a6b07746e935fp+165},
+     {0x1.046d7958b0000p+203, 0x1.ed6e917e8b142p+165},
+     {0x1.1b6eb0df00000p+203, 0x1.f670cc6239acap+165},
+     {0x1.1fe0c31e80000p+202, 0x1.e0839356186f3p+164},
+     {0x1.9b546278c0000p+200, 0x1.df4225487c736p+165},
+     {0x1.5b8e40d010000p+202, 0x1.1bfeaa603a21ap+163},
+     {0x1.06acb51bd4000p+204, 0x1.0e38ceb55cbf8p+165},
+     {0x1.d3ee658640000p+203, 0x1.915c7a2e7cb33p+165},
+     {0x1.ecfce32d00000p+202, 0x1.28f4a23020ccbp+165},
+     {0x1.0ca6aecd40000p+204, 0x1.542740e7b5a22p+165},
+     {0x1.8f55a561d0000p+202, 0x1.e08821f692905p+165},
+     {0x1.e8af0f5410000p+203, 0x1.6db04d96bbaf3p+163},
+     {0x1.38a64119b0000p+203, 0x1.5ee3d2997d4f5p+161},
+     {0x1.45228c2a80000p+202, 0x1.d27befed2e0bfp+165},
+     {0x1.5eb6661648000p+203, 0x1.44fdb1be7fe89p+162},
+     {0x1.44f9cc4f00000p+202, 0x1.a3772f2c675abp+165},
+     {0x1.bc22aeaba0000p+203, 0x1.3a2ea5f398a0dp+165},
+     {0x1.3490c43380000p+202, 0x1.ed0bacdc845abp+165},
+     {0x1.c9b724b018000p+203, 0x1.958710ad0939ep+165},
      },
 };
 } // namespace FP8

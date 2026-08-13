@@ -156,6 +156,13 @@ struct Handle_t {
     int nB   = 0;
     std::unordered_map<LtMatmulKey, LtMatmulPlan, LtMatmulKeyHash> plan_cache;
 
+    bool fp8_k_blocking       = false;
+    int fp8_k_block_first     = 0;
+    int fp8_k_block_next      = 0;
+    float fp8_modulus         = 0.0f;
+    float fp8_neg_inv_modulus = 0.0f;
+    float fp8_half_modulus    = 0.0f;
+
     Handle_t(CublasTag, cublasHandle_t h) : kind(HandleKind::cuBLAS), cublas(h) {}
     Handle_t(CublasLtTag, cublasLtHandle_t h) : kind(HandleKind::cuBLASLt), cublasLt(h) {}
 };

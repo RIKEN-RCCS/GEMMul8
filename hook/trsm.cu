@@ -270,6 +270,8 @@ static inline cublasStatus_t trsm_common_impl(
     T *B, int64_t ldb,
     NativeCall call_native //
 ) {
+    gemmul8::set_block_size_trsm(gemmul8::hook::requested_block_size_trsm());
+
     if (!is_valid_side(side)) return CUBLAS_STATUS_INVALID_VALUE;
 
     const gemmul8::hook::HookOp OP = gemmul8::hook::hook_op_from_trsm_side(side);

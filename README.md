@@ -633,24 +633,30 @@ export GEMMUL8_BACKEND_TRSM_LEFT=INT8
 export GEMMUL8_NUM_MOD_D_TRSM_LEFT=10
 export GEMMUL8_FASTMODE_D_TRSM_LEFT=0
 
+# Global TRSM block-size override
+# 0 (default): automatic architecture/backend-dependent selection
+# >0: use the specified block size
+export GEMMUL8_BLK_SIZE_TRSM=2048
+
 # Global skip-scaling switches
 export GEMMUL8_SKIP_SCALE_A=1
 export GEMMUL8_SKIP_SCALE_B=1
 ```
 
-| Variable pattern          | Default | Description                                                                                     |
-| :------------------------ | :------ | :---------------------------------------------------------------------------------------------- |
-| `GEMMUL8_BACKEND_<OP>`    | `INT8`  | Selects the emulation backend. `0` or `INT8` = INT8 backend; `1` or `FP8` = FP8 backend.        |
-| `GEMMUL8_NUM_MOD_S_<OP>`  | `0`     | Number of moduli for FP32 real routines. Native BLAS is used if outside `[2, 13]`.              |
-| `GEMMUL8_NUM_MOD_D_<OP>`  | `0`     | Number of moduli for FP64 real routines. Native BLAS is used if outside `[2, 20]`.              |
-| `GEMMUL8_NUM_MOD_C_<OP>`  | `0`     | Number of moduli for FP32 complex routines. Native BLAS is used if outside `[2, 13]`.           |
-| `GEMMUL8_NUM_MOD_Z_<OP>`  | `0`     | Number of moduli for FP64 complex routines. Native BLAS is used if outside `[2, 20]`.           |
-| `GEMMUL8_FASTMODE_S_<OP>` | `0`     | Fast mode switch for FP32 real routines. `1` = fast mode; `0` = accurate mode.                  |
-| `GEMMUL8_FASTMODE_D_<OP>` | `0`     | Fast mode switch for FP64 real routines. `1` = fast mode; `0` = accurate mode.                  |
-| `GEMMUL8_FASTMODE_C_<OP>` | `0`     | Fast mode switch for FP32 complex routines. `1` = fast mode; `0` = accurate mode.               |
-| `GEMMUL8_FASTMODE_Z_<OP>` | `0`     | Fast mode switch for FP64 complex routines. `1` = fast mode; `0` = accurate mode.               |
-| `GEMMUL8_SKIP_SCALE_A`    | `0`     | Global switch that enables reuse of preprocessed/scaled `A` when the operand cache key matches. |
-| `GEMMUL8_SKIP_SCALE_B`    | `0`     | Global switch that enables reuse of preprocessed/scaled `B` when the operand cache key matches. |
+| Variable pattern          | Default | Description                                                                                        |
+| :------------------------ | :------ | :------------------------------------------------------------------------------------------------- |
+| `GEMMUL8_BACKEND_<OP>`    | `INT8`  | Selects the emulation backend. `0` or `INT8` = INT8 backend; `1` or `FP8` = FP8 backend.           |
+| `GEMMUL8_NUM_MOD_S_<OP>`  | `0`     | Number of moduli for FP32 real routines. Native BLAS is used if outside `[2, 13]`.                 |
+| `GEMMUL8_NUM_MOD_D_<OP>`  | `0`     | Number of moduli for FP64 real routines. Native BLAS is used if outside `[2, 20]`.                 |
+| `GEMMUL8_NUM_MOD_C_<OP>`  | `0`     | Number of moduli for FP32 complex routines. Native BLAS is used if outside `[2, 13]`.              |
+| `GEMMUL8_NUM_MOD_Z_<OP>`  | `0`     | Number of moduli for FP64 complex routines. Native BLAS is used if outside `[2, 20]`.              |
+| `GEMMUL8_FASTMODE_S_<OP>` | `1`     | Fast mode switch for FP32 real routines. `1` = fast mode; `0` = accurate mode.                     |
+| `GEMMUL8_FASTMODE_D_<OP>` | `1`     | Fast mode switch for FP64 real routines. `1` = fast mode; `0` = accurate mode.                     |
+| `GEMMUL8_FASTMODE_C_<OP>` | `1`     | Fast mode switch for FP32 complex routines. `1` = fast mode; `0` = accurate mode.                  |
+| `GEMMUL8_FASTMODE_Z_<OP>` | `1`     | Fast mode switch for FP64 complex routines. `1` = fast mode; `0` = accurate mode.                  |
+| `GEMMUL8_BLK_SIZE_TRSM`   | `0`     | Global TRSM block-size override. `>0` uses the specified size; `<=0` restores automatic selection. |
+| `GEMMUL8_SKIP_SCALE_A`    | `0`     | Global switch that enables reuse of preprocessed/scaled `A` when the operand cache key matches.    |
+| `GEMMUL8_SKIP_SCALE_B`    | `0`     | Global switch that enables reuse of preprocessed/scaled `B` when the operand cache key matches.    |
 
 #### Max-workspace preallocation
 
@@ -783,6 +789,8 @@ If any condition differs, the hook performs preprocessing again for that operand
 > `GEMMUL8_MAX_*_<OP>`, `GEMMUL8_MAXWS_BACKEND_<OP>`, and `GEMMUL8_MAX_NUM_MOD_<OP>` are read only once on first hook use to compute the maximum workspace sizes.
 >
 > Runtime variables such as `GEMMUL8_NUM_MOD_<S|D|C|Z>_<OP>`, `GEMMUL8_FASTMODE_<S|D|C|Z>_<OP>`, `GEMMUL8_BACKEND_<OP>`, and `GEMMUL8_SKIP_SCALE_*` are read at each intercepted routine call.
+> `GEMMUL8_BLK_SIZE_TRSM` is likewise read at each intercepted TRSM call.
+> Because the TRSM block size affects `workSizeTrsm()`, the hook refreshes the block-size override before querying or allocating the TRSM workspace.
 
 #### How to change environment variables programmatically
 
@@ -843,6 +851,7 @@ The following individuals helped conduct preliminary experiments on the B200 env
 - Uchino, Y., Ozaki, K., & Imamura, T. (2025). Performance enhancement of the Ozaki Scheme on integer matrix multiplication unit. The International Journal of High Performance Computing Applications, 39(3), 462-476, [doi.org/10.1177/10943420241313064](https://doi.org/10.1177/10943420241313064).
 - Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
 - Kawakami S. (2026). GEMMul8 (fork with improved fast mode scaling), GitHub, [https://github.com/kotatsumuri/GEMMul8](https://github.com/kotatsumuri/GEMMul8).
+- Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). DGEMM with Ozaki Scheme I/II on FP4 Tensor Cores: A Base-13 E2M1 Limb Representation, [doi.org/10.48550/arXiv.2608.06812](https://doi.org/10.48550/arXiv.2608.06812).
 
 ## Citations
 
@@ -869,14 +878,14 @@ The following individuals helped conduct preliminary experiments on the B200 env
 ```
 
 ```bibtex
-@misc{ozaki2025ozakischemeiigemmoriented,
-    title={Ozaki Scheme II: A GEMM-oriented emulation of floating-point matrix multiplication using an integer modular technique},
-    author={Katsuhisa Ozaki and Yuki Uchino and Toshiyuki Imamura},
-    year={2025},
-    eprint={2504.08009},
-    archivePrefix={arXiv},
-    primaryClass={cs.MS},
-    url={https://arxiv.org/abs/2504.08009},
+@article{doi:10.1177/10943420261467787,
+    author = {Katsuhisa Ozaki and Yuki Uchino and Toshiyuki Imamura},
+    title ={Ozaki scheme II: A GEMM-oriented emulation of floating-point matrix multiplication using an integer modular technique},
+    journal = {The International Journal of High Performance Computing Applications},
+    year = {2026},
+    doi = {10.1177/10943420261467787},
+    URL = {https://doi.org/10.1177/10943420261467787},
+    note = {OnlineFirst},
 }
 ```
 

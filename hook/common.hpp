@@ -15,10 +15,11 @@
  *   | GEMMUL8_NUM_MOD_D_<OP>                   | 0       | Number of moduli for FP64 real routines. Native BLAS is used if outside [2, 20].    |
  *   | GEMMUL8_NUM_MOD_C_<OP>                   | 0       | Number of moduli for FP32 complex routines. Native BLAS is used if outside [2, 13]. |
  *   | GEMMUL8_NUM_MOD_Z_<OP>                   | 0       | Number of moduli for FP64 complex routines. Native BLAS is used if outside [2, 20]. |
- *   | GEMMUL8_FASTMODE_S_<OP>                  | 0       | Fast mode switch for FP32 real routines. 1 = fast mode; 0 = accurate mode.          |
- *   | GEMMUL8_FASTMODE_D_<OP>                  | 0       | Fast mode switch for FP64 real routines. 1 = fast mode; 0 = accurate mode.          |
- *   | GEMMUL8_FASTMODE_C_<OP>                  | 0       | Fast mode switch for FP32 complex routines. 1 = fast mode; 0 = accurate mode.       |
- *   | GEMMUL8_FASTMODE_Z_<OP>                  | 0       | Fast mode switch for FP64 complex routines. 1 = fast mode; 0 = accurate mode.       |
+ *   | GEMMUL8_FASTMODE_S_<OP>                  | 1       | Fast mode switch for FP32 real routines. 1 = fast mode; 0 = accurate mode.          |
+ *   | GEMMUL8_FASTMODE_D_<OP>                  | 1       | Fast mode switch for FP64 real routines. 1 = fast mode; 0 = accurate mode.          |
+ *   | GEMMUL8_FASTMODE_C_<OP>                  | 1       | Fast mode switch for FP32 complex routines. 1 = fast mode; 0 = accurate mode.       |
+ *   | GEMMUL8_FASTMODE_Z_<OP>                  | 1       | Fast mode switch for FP64 complex routines. 1 = fast mode; 0 = accurate mode.       |
+ *   | GEMMUL8_BLK_SIZE_TRSM                    | 0       | TRSM block-size override. >0 = use the specified size; <=0 = automatic selection.   |
  *   | GEMMUL8_SKIP_SCALE_A                     | 0       | Enables reuse of preprocessed/scaled A when the operand cache key matches.          |
  *   | GEMMUL8_SKIP_SCALE_B                     | 0       | Enables reuse of preprocessed/scaled B when the operand cache key matches.          |
  *
@@ -246,10 +247,12 @@ inline constexpr int NUM_MOD_S   = 0; // default float moduli
 inline constexpr int NUM_MOD_Z   = 0; // default double-complex moduli
 inline constexpr int NUM_MOD_C   = 0; // default float-complex moduli
 
-inline constexpr bool FASTMODE_D = false; // default double fastmode
-inline constexpr bool FASTMODE_S = false; // default float fastmode
-inline constexpr bool FASTMODE_Z = false; // default double-complex fastmode
-inline constexpr bool FASTMODE_C = false; // default float-complex fastmode
+inline constexpr bool FASTMODE_D = true; // default double fastmode
+inline constexpr bool FASTMODE_S = true; // default float fastmode
+inline constexpr bool FASTMODE_Z = true; // default double-complex fastmode
+inline constexpr bool FASTMODE_C = true; // default float-complex fastmode
+
+inline constexpr int BLK_SIZE_TRSM = 0; // default TRSM block-size override
 
 inline constexpr bool SCALE_A = false; // default skip_scalA_switch
 inline constexpr bool SCALE_B = false; // default skip_scalB_switch
@@ -596,6 +599,11 @@ static inline Backend env_backend(const char *s, Backend def) {
 
 static inline Backend requested_backend(const HookOp op) {
     return env_backend(getenv_op("GEMMUL8_BACKEND", op), initial_vals::BACKEND);
+}
+
+static inline int requested_block_size_trsm() {
+    const int nB = env_i32(std::getenv("GEMMUL8_BLK_SIZE_TRSM"), initial_vals::BLK_SIZE_TRSM);
+    return (nB > 0) ? nB : 0;
 }
 
 template <bool COMPLEX, Backend BACKEND, Func FUNC>

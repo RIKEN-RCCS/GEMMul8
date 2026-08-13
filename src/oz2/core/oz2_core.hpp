@@ -107,6 +107,9 @@ inline std::vector<double> oz2_core(
         }
     }
     common::set_handle<BACKEND, FUNC>(stream, handle, ldc_hi, n_work, lda_lo, ldb_lo, ldb_lo, ldc_hi, lwork_blas, UPLO_A_handle, UPLO_B_handle);
+    if constexpr (BACKEND == Backend::FP8) {
+        handle.fp8_k_blocking = false;
+    }
 
     // set timer
     std::vector<double> timer(4, 0.0);
@@ -145,6 +148,18 @@ inline std::vector<double> oz2_core(
 
         unsigned bcnt = batch_count<NUM_MODULI>(
             handle.arch, n_work, i, sizeC_Mid, sizeC_Hi, lwork_blas, worksizeC, pointer_products_per_modulus);
+
+        if constexpr (BACKEND == Backend::FP8) {
+            bcnt                       = limit_fp8_batch_for_k<NUM_MODULI>(i, bcnt, k_pad);
+            const int KB               = int(common::table::k_block_first_fp8[i]);
+            const float p              = float(common::table::moduli_fp8[i]);
+            handle.fp8_k_blocking      = (k_pad > size_t(KB));
+            handle.fp8_k_block_first   = KB;
+            handle.fp8_k_block_next    = common::table::k_block_next_fp8[i];
+            handle.fp8_modulus         = p;
+            handle.fp8_neg_inv_modulus = float(-1.0 / double(common::table::moduli_fp8[i]));
+            handle.fp8_half_modulus    = 0.5f * p;
+        }
 
         int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
 
@@ -277,6 +292,9 @@ inline std::vector<double> oz2_core_rk(
     handle.Aarray = nullptr;
     handle.Barray = nullptr;
     handle.Carray = nullptr;
+    if constexpr (BACKEND == Backend::FP8) {
+        handle.fp8_k_blocking = false;
+    }
 
     // set timer
     std::vector<double> timer(4, 0.0);
@@ -308,6 +326,18 @@ inline std::vector<double> oz2_core_rk(
 
         unsigned bcnt = batch_count<NUM_MODULI>(
             handle.arch, n, i, sizeC_Mid, sizeC_Hi, lwork_blas, worksizeC, 0u);
+
+        if constexpr (BACKEND == Backend::FP8) {
+            bcnt                       = limit_fp8_batch_for_k<NUM_MODULI>(i, bcnt, k_pad);
+            const int KB               = int(common::table::k_block_first_fp8[i]);
+            const float p              = float(common::table::moduli_fp8[i]);
+            handle.fp8_k_blocking      = (k_pad > size_t(KB));
+            handle.fp8_k_block_first   = KB;
+            handle.fp8_k_block_next    = common::table::k_block_next_fp8[i];
+            handle.fp8_modulus         = p;
+            handle.fp8_neg_inv_modulus = float(-1.0 / double(common::table::moduli_fp8[i]));
+            handle.fp8_half_modulus    = 0.5f * p;
+        }
 
         const size_t mid_bytes = bcnt * sizeC_Mid;
         const size_t gap       = std::max<size_t>(lwork_blas, mid_bytes);

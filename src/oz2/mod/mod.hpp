@@ -59,34 +59,34 @@ namespace gemmul8::mod {
         out2 += inc;                                          \
     }
 
-#define GEMMUL8_FP8_RUN_SCALAR_STEP(I)                               \
-    if constexpr (NUM_MODULI > (I)) {                                \
-        mod_launch<(I), V>(out, inc, v);                             \
-        out += (((I) < common::table::not_Karatsuba) ? 2 : 3) * inc; \
+#define GEMMUL8_FP8_RUN_SCALAR_STEP(I)                              \
+    if constexpr (NUM_MODULI > (I)) {                               \
+        mod_launch<(I), V>(out, inc, v);                            \
+        out += ((common::table::sqrt_moduli<I> == 0) ? 3 : 2) * inc; \
     }
 
-#define GEMMUL8_FP8_RUN_VEC4_STEP(I)                                 \
-    if constexpr (NUM_MODULI > (I)) {                                \
-        mod_launch<(I), V>(out, inc, v0, v1, v2, v3);                \
-        out += (((I) < common::table::not_Karatsuba) ? 2 : 3) * inc; \
+#define GEMMUL8_FP8_RUN_VEC4_STEP(I)                                \
+    if constexpr (NUM_MODULI > (I)) {                               \
+        mod_launch<(I), V>(out, inc, v0, v1, v2, v3);               \
+        out += ((common::table::sqrt_moduli<I> == 0) ? 3 : 2) * inc; \
     }
 
-#define GEMMUL8_FP8_RUN_CPLX_SCALAR_STEP(I)                                       \
-    if constexpr (NUM_MODULI > (I)) {                                             \
-        mod_launch<(I), V>(out0, out1, out2, inc, v);                             \
-        const size_t step = (((I) < common::table::not_Karatsuba) ? 2 : 3) * inc; \
-        out0 += step;                                                             \
-        out1 += step;                                                             \
-        out2 += step;                                                             \
+#define GEMMUL8_FP8_RUN_CPLX_SCALAR_STEP(I)                                      \
+    if constexpr (NUM_MODULI > (I)) {                                            \
+        mod_launch<(I), V>(out0, out1, out2, inc, v);                            \
+        const size_t step = ((common::table::sqrt_moduli<I> == 0) ? 3 : 2) * inc; \
+        out0 += step;                                                            \
+        out1 += step;                                                            \
+        out2 += step;                                                            \
     }
 
-#define GEMMUL8_FP8_RUN_CPLX_VEC4_STEP(I)                                         \
-    if constexpr (NUM_MODULI > (I)) {                                             \
-        mod_launch<(I), V>(out0, out1, out2, inc, v0, v1, v2, v3);                \
-        const size_t step = (((I) < common::table::not_Karatsuba) ? 2 : 3) * inc; \
-        out0 += step;                                                             \
-        out1 += step;                                                             \
-        out2 += step;                                                             \
+#define GEMMUL8_FP8_RUN_CPLX_VEC4_STEP(I)                                        \
+    if constexpr (NUM_MODULI > (I)) {                                            \
+        mod_launch<(I), V>(out0, out1, out2, inc, v0, v1, v2, v3);               \
+        const size_t step = ((common::table::sqrt_moduli<I> == 0) ? 3 : 2) * inc; \
+        out0 += step;                                                            \
+        out1 += step;                                                            \
+        out2 += step;                                                            \
     }
 
 // interface for general NUM_MODULI

@@ -35,14 +35,27 @@ inline unsigned batch_count(
     return 1u;
 }
 
+template <unsigned NUM_MODULI>
+inline unsigned limit_fp8_batch_for_k(const unsigned i, const unsigned bcnt, const size_t k_pad) {
+    unsigned safe = 0;
+
+    while (safe < bcnt) {
+        const unsigned idx = i + safe;
+        if (k_pad > common::table::k_block_first_fp8[idx]) {
+            break;
+        }
+        ++safe;
+    }
+
+    if (safe == 0) {
+        return 1;
+    }
+
+    return safe;
+}
+
 inline unsigned fp8_planes_consumed(const unsigned i0, const unsigned bcnt) {
-    constexpr unsigned K0 = common::table::not_Karatsuba;
-
-    const unsigned i1 = i0 + bcnt;
-    const unsigned n2 = (i0 < K0) ? (std::min(i1, K0) - i0) : 0u;
-    const unsigned n3 = bcnt - n2;
-
-    return 2u * n2 + 3u * n3;
+    return common::table::num_mat_fp8[i0 + bcnt] - common::table::num_mat_fp8[i0];
 }
 
 inline size_t fp8_plane_offset_from_group_start(
@@ -50,12 +63,7 @@ inline size_t fp8_plane_offset_from_group_start(
     const unsigned b,
     const size_t sizeX //
 ) {
-    constexpr unsigned K0 = common::table::not_Karatsuba;
-
-    const unsigned n2_before = (i0 < K0) ? std::min<unsigned>(b, K0 - i0) : 0u;
-    const unsigned n3_before = b - n2_before;
-
-    return size_t(2u * n2_before + 3u * n3_before) * sizeX;
+    return size_t(common::table::num_mat_fp8[i0 + b] - common::table::num_mat_fp8[i0]) * sizeX;
 }
 
 inline void upload_pointer_arrays(
@@ -430,7 +438,7 @@ inline void error_free_matmult_f8_real(
         LowT *B0 = B_lo.ptr0 + offB;
         HiT *C0  = C_hi.ptr0 + b * 3 * sizeC;
 
-        if (mod_idx < common::table::not_Karatsuba) {
+        if (!common::table::isKaratsuba[mod_idx]) {
             LowT *Ahi = A0;
             LowT *Alo = A0 + sizeA;
             LowT *Bhi = B0;
@@ -517,7 +525,7 @@ inline void error_free_matmult_f8_real_strided(
     constexpr HiT one  = 1.0f;
     constexpr HiT zero = 0.0f;
 
-    if (idx < common::table::not_Karatsuba) {
+    if (!common::table::isKaratsuba[idx]) {
         const int64_t strideA = 2 * int64_t(sizeA);
         const int64_t strideB = 2 * int64_t(sizeB);
         const int64_t strideC = 3 * int64_t(sizeC);
@@ -619,7 +627,7 @@ inline void error_free_matmult_f8_complex(
             LowT *B0 = Bptr[p] + offB;
             HiT *C0  = Cbase + 3 * p * sizeC;
 
-            if (mod_idx < common::table::not_Karatsuba) {
+            if (!common::table::isKaratsuba[mod_idx]) {
                 LowT *Ahi = A0;
                 LowT *Alo = A0 + sizeA;
                 LowT *Bhi = B0;
@@ -721,7 +729,7 @@ inline void error_free_matmult_f8_complex_strided(
 
     const int64_t strideC = 9 * int64_t(sizeC);
 
-    if (idx < common::table::not_Karatsuba) {
+    if (!common::table::isKaratsuba[idx]) {
         const int64_t strideA = 2 * int64_t(sizeA);
         const int64_t strideB = 2 * int64_t(sizeB);
 
@@ -805,13 +813,16 @@ inline void error_free_matmult_f8_real_strided_split(
     common::matptr_t<common::low_t<Backend::FP8>, false> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, false> &C_hi //
 ) {
-    constexpr unsigned K0 = common::table::not_Karatsuba;
-
     unsigned done = 0;
 
     while (done < bcnt) {
-        const unsigned cur = idx + done;
-        const unsigned cnt = (cur < K0) ? std::min<unsigned>(bcnt - done, K0 - cur) : (bcnt - done);
+        const unsigned cur   = idx + done;
+        const bool karatsuba = common::table::isKaratsuba[cur];
+
+        unsigned cnt = 1;
+        while (done + cnt < bcnt && common::table::isKaratsuba[cur + cnt] == karatsuba) {
+            ++cnt;
+        }
 
         auto C_part = C_hi;
         C_part.shift(size_t(done) * 3 * sizeC);
@@ -847,16 +858,16 @@ inline void error_free_matmult_f8_complex_strided_split(
     common::matptr_t<common::low_t<Backend::FP8>, true> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, true> &C_hi //
 ) {
-    constexpr unsigned K0 = common::table::not_Karatsuba;
-
     unsigned done = 0;
 
     while (done < bcnt) {
-        const unsigned cur = idx + done;
-        const unsigned cnt =
-            (cur < K0)
-                ? std::min<unsigned>(bcnt - done, K0 - cur)
-                : (bcnt - done);
+        const unsigned cur   = idx + done;
+        const bool karatsuba = common::table::isKaratsuba[cur];
+
+        unsigned cnt = 1;
+        while (done + cnt < bcnt && common::table::isKaratsuba[cur + cnt] == karatsuba) {
+            ++cnt;
+        }
 
         auto C_part = C_hi;
         C_part.shift(size_t(done) * 9 * sizeC);

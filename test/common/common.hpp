@@ -82,7 +82,7 @@ inline constexpr unsigned long long seedB = 54321;
 
 inline std::vector<int> oz1_slice_list = {7, 11};
 
-inline std::vector<size_t> N_list   = {1024, 2048, 4096, 8192, 16384, 32768, 65536};
+inline std::vector<size_t> N_list   = {1024, 2048, 4096, 8192, 16384, 32768};
 inline std::vector<double> phi_list = {-1.0, 0.0, 0.5, 1.0, 2.0, 4.0};
 
 template <gemmul8::Backend backend> inline constexpr char backendType = 'f';
@@ -91,7 +91,7 @@ template <> inline constexpr char backendType<gemmul8::Backend::INT8> = 'i';
 template <typename T> struct testTraits;
 
 template <> struct testTraits<float> {
-    static constexpr unsigned NUM_MODULI_MIN          = 6;
+    static constexpr unsigned NUM_MODULI_MIN          = 4;
     static constexpr unsigned NUM_MODULI_MAX          = 9;
     static constexpr unsigned NUM_MODULI_MIN_accuracy = 3;
     static constexpr unsigned NUM_MODULI_MAX_accuracy = 12;
@@ -116,9 +116,9 @@ template <> struct testTraits<float> {
 };
 
 template <> struct testTraits<double> {
-    static constexpr unsigned NUM_MODULI_MIN          = 12;
+    static constexpr unsigned NUM_MODULI_MIN          = 9;
     static constexpr unsigned NUM_MODULI_MAX          = 16;
-    static constexpr unsigned NUM_MODULI_MIN_accuracy = 9;
+    static constexpr unsigned NUM_MODULI_MIN_accuracy = 8;
     static constexpr unsigned NUM_MODULI_MAX_accuracy = 20;
     static constexpr char prefix                      = 'd';
     static constexpr char prefix_upper                = 'D';
@@ -141,7 +141,7 @@ template <> struct testTraits<double> {
 };
 
 template <> struct testTraits<cuFloatComplex> {
-    static constexpr unsigned NUM_MODULI_MIN          = 6;
+    static constexpr unsigned NUM_MODULI_MIN          = 4;
     static constexpr unsigned NUM_MODULI_MAX          = 9;
     static constexpr unsigned NUM_MODULI_MIN_accuracy = 3;
     static constexpr unsigned NUM_MODULI_MAX_accuracy = 12;
@@ -170,9 +170,9 @@ template <> struct testTraits<cuFloatComplex> {
 };
 
 template <> struct testTraits<cuDoubleComplex> {
-    static constexpr unsigned NUM_MODULI_MIN          = 12;
+    static constexpr unsigned NUM_MODULI_MIN          = 9;
     static constexpr unsigned NUM_MODULI_MAX          = 16;
-    static constexpr unsigned NUM_MODULI_MIN_accuracy = 9;
+    static constexpr unsigned NUM_MODULI_MIN_accuracy = 8;
     static constexpr unsigned NUM_MODULI_MAX_accuracy = 20;
     static constexpr char prefix                      = 'z';
     static constexpr char prefix_upper                = 'Z';

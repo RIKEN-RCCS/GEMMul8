@@ -13,7 +13,7 @@ __device__ __forceinline__ int32_t mod_f32x3_2_i32(const float C0, const float C
     //------------------------------
     // Transform 3 float integers
     //     isSqr<p> => sqrt(p_i)*(C0 + C1) + C2    with C0=Ahi*Blo, C1=Alo*Bhi, C2=Alo*Blo
-    //    !isSqr<p> => 256*C0 + 16*(C2-C0-C1) + C1 with C0=Ahi*Bhi, C1=Alo*Blo, C2=(Ahi+Alo)*(Bhi+Blo)
+    //    !isSqr<p> => 2401*C0 + 49*(C2-C0-C1) + C1 with C0=Ahi*Bhi, C1=Alo*Blo, C2=(Ahi+Alo)*(Bhi+Blo)
     // into 1 INT32
     //------------------------------
     const int32_t c0 = __float2int_rn(C0);
@@ -23,7 +23,7 @@ __device__ __forceinline__ int32_t mod_f32x3_2_i32(const float C0, const float C
     const int32_t r1 = mod_small_nowrap<Backend::FP8, IDX>(c1);
     const int32_t r2 = mod_small_nowrap<Backend::FP8, IDX>(c2);
 
-    if constexpr (IDX < common::table::not_Karatsuba) {
+    if constexpr (common::table::sqrt_moduli<IDX> != 0) {
 
         constexpr int32_t sqrt_p = common::table::sqrt_moduli<IDX>;
         const int32_t t          = sqrt_p * (r0 + r1) + r2;
@@ -32,7 +32,7 @@ __device__ __forceinline__ int32_t mod_f32x3_2_i32(const float C0, const float C
 
     } else {
 
-        const int32_t t = (r0 * 256) + ((r2 - r0 - r1) * 16) + r1;
+        const int32_t t = (r0 * 2401) + ((r2 - r0 - r1) * 49) + r1;
         if constexpr (nowrap) return t;
         return mod_small<Backend::FP8, IDX>(t);
     }
