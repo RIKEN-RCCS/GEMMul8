@@ -1,7 +1,8 @@
 #pragma once
 #include "../common/common.hpp"
 #include "../common/self_hipify.hpp"
-#include "../core/oz2_core.hpp"
+#include "../core/blocking.hpp"
+#include "../gemm/gemm_core.hpp"
 #include "blas.hpp"
 #include "block_size.hpp"
 #include "worksize.hpp"
@@ -26,7 +27,7 @@ inline std::vector<double> trsm_right(
 
     // Return workspace size.
     if (work == nullptr) {
-        size_t workSize_total = workSize_right<TA, BACKEND>(m, n, NUM_MODULI);
+        size_t workSize_total = workSize_right<TA, BACKEND>(m, n, NUM_MODULI, handle.config.block_size_trsm);
         std::vector<double> timer(4, 0.0);
         timer[0] = static_cast<double>(workSize_total);
         return timer;
@@ -44,24 +45,38 @@ inline std::vector<double> trsm_right(
         cublasSetStream(trsm_handle, stream);
 
         const size_t lwork_blas = size_t(32) << 20;
-        cublasSetWorkspace(trsm_handle, work, lwork_blas);
+        const size_t lwork_max  = handle.config.max_worksize;
+        const size_t lwork_trsm = (handle.config.memory_saving && lwork_max > 0)
+                                      ? std::min<size_t>(lwork_blas, lwork_max)
+                                      : lwork_blas;
+        cublasSetWorkspace(trsm_handle, work, lwork_trsm);
+
+        const cublasPointerMode_t pointer_mode = undo_scaling::is_device_pointer(alpha)
+                                                     ? CUBLAS_POINTER_MODE_DEVICE
+                                                     : CUBLAS_POINTER_MODE_HOST;
+        cublasSetPointerMode(trsm_handle, pointer_mode);
     }
 
-    cublasPointerMode_t saved_ptr_mode = CUBLAS_POINTER_MODE_HOST;
-    cublasGetPointerMode(trsm_handle, &saved_ptr_mode);
-    cublasSetPointerMode(trsm_handle, CUBLAS_POINTER_MODE_HOST);
-
-// #if defined(__CUDACC__)
-//     cublasMath_t current_math_mode = CUBLAS_DEFAULT_MATH;
-//     cublasGetMathMode(trsm_handle, &current_math_mode);
-//     cublasSetMathMode(trsm_handle, CUBLAS_DEFAULT_MATH);
-// #endif
-
-    const TB one       = common::Tconst<TB>::one();
-    const TB minus_one = common::Tconst<TB>::mone();
-
     handle.arch     = 0;
-    const size_t nB = size_t(block_size_trsm<TA, BACKEND>(n, handle.arch));
+    const size_t nB = size_t(block_size_trsm<TA, BACKEND>(n, handle.arch, handle.config.block_size_trsm));
+
+    core::blocking::OneScalar<TB> one_storage;
+    core::blocking::MinusOneScalar<TB> minus_one_storage;
+    const TB *one       = nullptr;
+    const TB *minus_one = nullptr;
+
+    if (n > nB) {
+        one       = one_storage.get(alpha, stream);
+        minus_one = minus_one_storage.get(alpha, stream);
+
+        if (!one || !minus_one) {
+            assert(false && "Failed to create scalar constants for blocked TRSM.");
+            one_storage.release(stream);
+            minus_one_storage.release(stream);
+            if (created_trsm_handle) cublasDestroy(trsm_handle);
+            return std::vector<double>(4, 0.0);
+        }
+    }
 
     const unsigned num_events = unsigned((n + nB - 1) / nB) * 2u + 1u;
     std::vector<cudaEvent_t> events(num_events, nullptr);
@@ -95,9 +110,9 @@ inline std::vector<double> trsm_right(
             TB *const Bj   = B + j * ldb;
             TB *const Cblk = B + col0 * ldb;
 
-            core::oz2_core<Func::gemm, TB, TA, TB, BACKEND, NUM_MODULI, TB, TB>(
+            gemm::gemm_core<TB, TA, TB, BACKEND, NUM_MODULI>(
                 handle, CUBLAS_OP_N, op_A, m, cols, jb,
-                &minus_one, Bj, ldb, Ablk, lda, beta_gemm, Cblk, ldb,
+                minus_one, Bj, ldb, Ablk, lda, beta_gemm, Cblk, ldb,
                 fastmode, work, nullptr, nullptr, false, false, false, false, stream);
         };
 
@@ -113,8 +128,8 @@ inline std::vector<double> trsm_right(
             TB *const Bj        = B + j * ldb;
 
             const bool first_block     = (j == 0);
-            const TB *const alpha_trsm = first_block ? alpha : &one;
-            const TB *const beta_gemm  = first_block ? alpha : &one;
+            const TB *const alpha_trsm = first_block ? alpha : one;
+            const TB *const beta_gemm  = first_block ? alpha : one;
 
             small_trsm<TB>(
                 trsm_handle, CUBLAS_SIDE_RIGHT,
@@ -146,8 +161,8 @@ inline std::vector<double> trsm_right(
             TB *const Bj        = B + j * ldb;
 
             const bool first_block     = (j_end == n);
-            const TB *const alpha_trsm = first_block ? alpha : &one;
-            const TB *const beta_gemm  = first_block ? alpha : &one;
+            const TB *const alpha_trsm = first_block ? alpha : one;
+            const TB *const beta_gemm  = first_block ? alpha : one;
 
             small_trsm<TB>(
                 trsm_handle,
@@ -186,11 +201,8 @@ inline std::vector<double> trsm_right(
     for (auto ev : events) {
         if (ev) cudaEventDestroy(ev);
     }
-
-// #if defined(__CUDACC__)
-//     cublasSetMathMode(trsm_handle, current_math_mode);
-// #endif
-    cublasSetPointerMode(trsm_handle, saved_ptr_mode);
+    one_storage.release(stream);
+    minus_one_storage.release(stream);
 
     if (created_trsm_handle) {
         cublasDestroy(trsm_handle);

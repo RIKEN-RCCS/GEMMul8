@@ -7,6 +7,7 @@ template <typename T>
 void check_time(
     std::string &deviceName,
     std::string &dateTime,
+    size_t memory_limit,
     cublasSideMode_t side,
     cublasFillMode_t uplo,
     cublasOperation_t trans,

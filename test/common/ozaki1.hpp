@@ -37,7 +37,12 @@ inline size_t workSize(
     }
 
     constexpr size_t CONSTANT_SIZE = 128 * 1024 * 1024;
-    return (size_t)(std::max(gemm_workspace, adp_workspace) * batchCount * MULTIPLIER) + CONSTANT_SIZE;
+    const size_t lwork             = (size_t)(std::max(gemm_workspace, adp_workspace) * batchCount * MULTIPLIER) + CONSTANT_SIZE;
+    #if Ozaki1_8GB
+    return std::min(lwork, size_t(8589934592LLU));
+    #else
+    return lwork;
+    #endif
 #else
     return 0;
 #endif

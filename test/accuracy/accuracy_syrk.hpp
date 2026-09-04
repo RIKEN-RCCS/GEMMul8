@@ -7,6 +7,7 @@ template <typename T>
 void check_accuracy(
     std::string &deviceName,
     std::string &dateTime,
+    size_t memory_limit,
     cublasFillMode_t uplo,
     cublasOperation_t trans,
     const bool run_Ozaki2_I8,

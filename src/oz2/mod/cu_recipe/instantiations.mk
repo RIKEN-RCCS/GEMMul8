@@ -10,6 +10,7 @@ MOD_UPLO_CODES_WITH_FULL := full upper lower
 MOD_DIR := src/oz2/mod
 MOD_HI2MID_SRC := $(MOD_DIR)/cu_recipe/mod_hi2mid.cu
 MOD_HI2MID_AHA_SRC := $(MOD_DIR)/cu_recipe/mod_hi2mid_aha.cu
+MOD_REDUCE_MATPROD_SRC := $(MOD_DIR)/cu_recipe/mod_reduce_matprod.cu
 
 # $(1): real|complex, $(2): i8|f8, $(3): full|upper|lower
 define ADD_MOD_HI2MID
@@ -38,3 +39,14 @@ endef
 $(foreach b,$(MOD_BACKEND_CODES),\
   $(foreach u,$(MOD_UPLO_CODES),\
     $(call ADD_MOD_HI2MID_AHA,$(b),$(u))))
+
+# $(1): i8|f8
+define ADD_MOD_REDUCE_MATPROD
+$(eval $(call ADD_INST_OBJ,\
+    $(MOD_DIR)/mod_reduce_matprod_$(1),\
+    $(MOD_REDUCE_MATPROD_SRC),\
+    -DGEMMUL8_INST_BACKEND=$(call backend_cpp,$(1))))
+endef
+
+$(foreach b,$(MOD_BACKEND_CODES),\
+  $(call ADD_MOD_REDUCE_MATPROD,$(b)))

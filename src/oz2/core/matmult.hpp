@@ -35,23 +35,51 @@ inline unsigned batch_count(
     return 1u;
 }
 
-template <unsigned NUM_MODULI>
-inline unsigned limit_fp8_batch_for_k(const unsigned i, const unsigned bcnt, const size_t k_pad) {
+inline constexpr size_t K_BLOCK_INT8 = size_t(1 << 17);
+
+template <Backend BACKEND>
+inline void configure_matprod_k_blocking(
+    common::Handle_t &handle,
+    const unsigned idx,
+    const size_t k //
+) {
+    handle.modulus_idx = idx;
+    if constexpr (BACKEND == Backend::INT8) {
+        constexpr int KB             = int(K_BLOCK_INT8);
+        const bool is_mod256         = (common::table::moduli_int8[idx] == 256);
+        handle.matprod_k_blocking    = !is_mod256 && k > size_t(KB);
+        handle.matprod_k_block_first = KB;
+        handle.matprod_k_block_next  = KB;
+    } else {
+        const int KB0                = int(common::table::k_block_first_fp8[idx]);
+        const int KB                 = int(common::table::k_block_next_fp8[idx]);
+        handle.matprod_k_blocking    = k > size_t(KB0);
+        handle.matprod_k_block_first = KB0;
+        handle.matprod_k_block_next  = KB;
+    }
+}
+
+template <Backend BACKEND>
+inline bool needs_k_blocking(const unsigned idx, const size_t k) {
+    if constexpr (BACKEND == Backend::INT8) {
+        if (common::table::moduli_int8[idx] == 256) { return false; }
+        return k > K_BLOCK_INT8;
+    } else {
+        return k > common::table::k_block_first_fp8[idx];
+    }
+}
+
+template <Backend BACKEND>
+inline unsigned limit_batch_for_k(const unsigned i, const unsigned bcnt, const size_t k) {
     unsigned safe = 0;
 
     while (safe < bcnt) {
         const unsigned idx = i + safe;
-        if (k_pad > common::table::k_block_first_fp8[idx]) {
-            break;
-        }
+        if (needs_k_blocking<BACKEND>(idx, k)) { break; }
         ++safe;
     }
 
-    if (safe == 0) {
-        return 1;
-    }
-
-    return safe;
+    return (safe == 0) ? 1 : safe;
 }
 
 inline unsigned fp8_planes_consumed(const unsigned i0, const unsigned bcnt) {

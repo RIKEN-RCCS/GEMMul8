@@ -20,6 +20,11 @@ extern "C" cublasStatus_t cublasDestroy_v2(cublasHandle_t handle) {
 
     gemmul8::hook::HookGuard guard;
     gemmul8::hook::cleanup_work(handle);
-    return real(handle);
+
+    const cublasStatus_t status = real(handle);
+    if (status == CUBLAS_STATUS_SUCCESS) {
+        gemmul8::clear_config(handle);
+    }
+    return status;
 #endif
 }

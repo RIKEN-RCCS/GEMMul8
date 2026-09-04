@@ -105,6 +105,7 @@ template <typename T>
 void check_time(
     std::string &deviceName,
     std::string &dateTime,
+    size_t memory_limit,
     cublasOperation_t transa,
     cublasOperation_t transb,
     const bool run_Ozaki2_I8,
@@ -120,6 +121,7 @@ void check_time(
                              square_tag +
                              opTag(transa) +
                              opTag(transb) +
+                             memTag(memory_limit) +
                              deviceName + "_" + dateTime + ".csv";
 
     std::ofstream outFile(fileName);
@@ -168,6 +170,13 @@ void check_time(
             ptr = nullptr;
         }
     };
+
+    if (memory_limit > 0) {
+        gemmul8::set_memory_saving(handle, true);
+        gemmul8::set_max_worksize(handle, memory_limit);
+        gemmul8::set_memory_savingLt(handleLt, true);
+        gemmul8::set_max_worksizeLt(handleLt, memory_limit);
+    }
 
     for (auto &m : N_list) {
         size_t n = m;
@@ -254,7 +263,7 @@ void check_time(
             if (run_oz2_i8) {
                 for (unsigned num_moduli = num_moduli_min; num_moduli <= num_moduli_max; ++num_moduli) {
 
-                    const size_t lwork_gemmul8_i8 = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::INT8, func>(m, n, k, num_moduli);
+                    const size_t lwork_gemmul8_i8 = (memory_limit > 0) ? memory_limit : gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::INT8, func>(m, n, k, num_moduli);
                     bool alloc_ok                 = (lwork_total + lwork_gemmul8_i8 <= free_bytes);
                     if (alloc_ok) alloc_ok = alloc_ok && (cudaMallocAsync(&work_emu, lwork_gemmul8_i8, stream) == cudaSuccess);
                     CHECK_CUDA(cudaStreamSynchronize(stream));
@@ -301,7 +310,7 @@ void check_time(
             if (run_oz2_i8) {
                 for (unsigned num_moduli = num_moduli_min; num_moduli <= num_moduli_max; ++num_moduli) {
 
-                    const size_t lwork_gemmul8_i8 = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::INT8, func>(m, n, k, num_moduli);
+                    const size_t lwork_gemmul8_i8 = (memory_limit > 0) ? memory_limit : gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::INT8, func>(m, n, k, num_moduli);
                     bool alloc_ok                 = (lwork_total + lwork_gemmul8_i8 <= free_bytes);
                     if (alloc_ok) alloc_ok = alloc_ok && (cudaMallocAsync(&work_emu, lwork_gemmul8_i8, stream) == cudaSuccess);
                     CHECK_CUDA(cudaStreamSynchronize(stream));
@@ -348,7 +357,7 @@ void check_time(
             if (run_oz2_f8) {
                 for (unsigned num_moduli = num_moduli_min; num_moduli <= num_moduli_max; ++num_moduli) {
 
-                    const size_t lwork_gemmul8_f8 = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(m, n, k, num_moduli);
+                    const size_t lwork_gemmul8_f8 = (memory_limit > 0) ? memory_limit : gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(m, n, k, num_moduli);
                     bool alloc_ok                 = (lwork_total + lwork_gemmul8_f8 <= free_bytes);
                     if (alloc_ok) alloc_ok = alloc_ok && (cudaMallocAsync(&work_emu, lwork_gemmul8_f8, stream) == cudaSuccess);
                     CHECK_CUDA(cudaStreamSynchronize(stream));
@@ -396,7 +405,7 @@ void check_time(
             if (run_oz2_f8) {
                 for (unsigned num_moduli = num_moduli_min; num_moduli <= num_moduli_max; ++num_moduli) {
 
-                    const size_t lwork_gemmul8_f8 = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(m, n, k, num_moduli);
+                    const size_t lwork_gemmul8_f8 = (memory_limit > 0) ? memory_limit : gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(m, n, k, num_moduli);
                     bool alloc_ok                 = (lwork_total + lwork_gemmul8_f8 <= free_bytes);
                     if (alloc_ok) alloc_ok = alloc_ok && (cudaMallocAsync(&work_emu, lwork_gemmul8_f8, stream) == cudaSuccess);
                     CHECK_CUDA(cudaStreamSynchronize(stream));
@@ -612,6 +621,10 @@ void check_time(
 
     std::cout << std::endl;
     CHECK_CUDA(cudaStreamSynchronize(stream));
+    if (memory_limit > 0) {
+        gemmul8::clear_config(handle);
+        gemmul8::clear_configLt(handleLt);
+    }
     CHECK_CUBLAS(cublasLtDestroy(handleLt));
     CHECK_CUBLAS(cublasDestroy(handle_emu));
     CHECK_CUBLAS(cublasDestroy(handle));
@@ -620,22 +633,22 @@ void check_time(
 }
 
 template void check_time<float>(
-    std::string &, std::string &,
+    std::string &, std::string &, size_t,
     cublasOperation_t, cublasOperation_t,
     const bool, const bool, const bool, const bool);
 
 template void check_time<double>(
-    std::string &, std::string &,
+    std::string &, std::string &, size_t,
     cublasOperation_t, cublasOperation_t,
     const bool, const bool, const bool, const bool);
 
 template void check_time<cuFloatComplex>(
-    std::string &, std::string &,
+    std::string &, std::string &, size_t,
     cublasOperation_t, cublasOperation_t,
     const bool, const bool, const bool, const bool);
 
 template void check_time<cuDoubleComplex>(
-    std::string &, std::string &,
+    std::string &, std::string &, size_t,
     cublasOperation_t, cublasOperation_t,
     const bool, const bool, const bool, const bool);
 

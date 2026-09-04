@@ -43,6 +43,12 @@ inline std::vector<double> oz2_core(
     using MidT             = common::mid_t<BACKEND, COMPLEX>;
     using HiT              = common::hi_t<BACKEND>;
 
+    const bool memory_saving_mode    = handle.config.memory_saving;
+    const bool enable_skip_scalA_eff = memory_saving_mode ? false : enable_skip_scalA;
+    const bool enable_skip_scalB_eff = memory_saving_mode ? false : enable_skip_scalB;
+    const bool skip_scalA_eff        = memory_saving_mode ? false : skip_scalA;
+    const bool skip_scalB_eff        = memory_saving_mode ? false : skip_scalB;
+
     // Set constants
     const size_t m_pad     = common::padding(m);
     const size_t n_pad     = common::padding(n);
@@ -56,8 +62,8 @@ inline std::vector<double> oz2_core(
     const size_t sizeC     = m_pad * n_work;
     const size_t size_vecA = m_pad;
     const size_t size_vecB = n_pad;
-    const bool skipA       = skip_scalA && enable_skip_scalA;
-    const bool skipB       = skip_scalB && enable_skip_scalB;
+    const bool skipA       = skip_scalA_eff && enable_skip_scalA_eff;
+    const bool skipB       = skip_scalB_eff && enable_skip_scalB_eff;
 
     // Set workspace
     constexpr common::MatMulKind KIND               = matmul_kind<FUNC, STRUCT_A, STRUCT_B, UPLO_C>();
@@ -84,10 +90,10 @@ inline std::vector<double> oz2_core(
     void *const workA_aligned = (workA) ? common::align(workA) : nullptr;
     void *const workB_aligned = (workB) ? common::align(workB) : nullptr;
 
-    const size_t incA_lo      = offsetA + ((enable_skip_scalA) ? (sizeA * matmul_per_moduli) : 0u);
-    const size_t incsftA      = size_vecA * ((enable_skip_scalA) ? 2u : 1u);
-    const size_t incB_lo      = offsetB + ((enable_skip_scalB) ? (sizeB * matmul_per_moduli) : 0u);
-    const size_t incsftB      = size_vecB * ((enable_skip_scalB) ? 2u : 1u);
+    const size_t incA_lo      = offsetA + ((enable_skip_scalA_eff && !fastmode) ? (sizeA * matmul_per_moduli) : 0u);
+    const size_t incsftA      = size_vecA * ((enable_skip_scalA_eff && !fastmode) ? 2u : 1u);
+    const size_t incB_lo      = offsetB + ((enable_skip_scalB_eff && !fastmode) ? (sizeB * matmul_per_moduli) : 0u);
+    const size_t incsftB      = size_vecB * ((enable_skip_scalB_eff && !fastmode) ? 2u : 1u);
     LowT *const A_lo_base     = reinterpret_cast<LowT *>((workA) ? workA_aligned : work_aligned);
     int16_t *const sftA       = reinterpret_cast<int16_t *>(A_lo_base + incA_lo);
     LowT *const B_lo_base     = reinterpret_cast<LowT *>((workB) ? workB_aligned : ((workA) ? work_aligned : (sftA + incsftA)));
@@ -107,9 +113,6 @@ inline std::vector<double> oz2_core(
         }
     }
     common::set_handle<BACKEND, FUNC>(stream, handle, ldc_hi, n_work, lda_lo, ldb_lo, ldb_lo, ldc_hi, lwork_blas, UPLO_A_handle, UPLO_B_handle);
-    if constexpr (BACKEND == Backend::FP8) {
-        handle.fp8_k_blocking = false;
-    }
 
     // set timer
     std::vector<double> timer(4, 0.0);
@@ -130,15 +133,15 @@ inline std::vector<double> oz2_core(
 
     } else {
 
-        auto A_lo_high   = common::make_matptr<LowT, COMPLEX>(A_lo_base + ((enable_skip_scalA) ? offsetA : 0u), sizeA);
-        auto B_lo_high   = common::make_matptr<LowT, COMPLEX>(B_lo_base + ((enable_skip_scalB) ? offsetB : 0u), sizeB);
+        auto A_lo_high   = common::make_matptr<LowT, COMPLEX>(A_lo_base + ((enable_skip_scalA_eff && !fastmode) ? offsetA : 0u), sizeA);
+        auto B_lo_high   = common::make_matptr<LowT, COMPLEX>(B_lo_base + ((enable_skip_scalB_eff && !fastmode) ? offsetB : 0u), sizeB);
         auto C_hi        = common::make_matptr<HiT, COMPLEX>(reinterpret_cast<HiT *>(C_work_base), sizeC * num_C_hi);
         handle.workspace = static_cast<void *>(C_work_base + sizeC_Hi);
 
         scaling_accu<FUNC, TA, TB, BACKEND, NUM_MODULI, STRUCT_A, STRUCT_B, UPLO_A, UPLO_B, DIAG_A, DIAG_B, UPLO_C>(
             stream, handle, op_A, op_B, m, n, k,
-            A, lda, A_lo, A_lo_high, lda_lo, sizeA, sftA, skipA, enable_skip_scalA,
-            B, ldb, B_lo, B_lo_high, ldb_lo, sizeB, sftB, skipB, enable_skip_scalB,
+            A, lda, A_lo, A_lo_high, lda_lo, sizeA, sftA, skipA, enable_skip_scalA_eff,
+            B, ldb, B_lo, B_lo_high, ldb_lo, sizeB, sftB, skipB, enable_skip_scalB_eff,
             C_hi, ldc_hi);
     }
 
@@ -147,19 +150,10 @@ inline std::vector<double> oz2_core(
     for (unsigned i = 0; i < NUM_MODULI;) {
 
         unsigned bcnt = batch_count<NUM_MODULI>(
-            handle.arch, n_work, i, sizeC_Mid, sizeC_Hi, lwork_blas, worksizeC, pointer_products_per_modulus);
-
-        if constexpr (BACKEND == Backend::FP8) {
-            bcnt                       = limit_fp8_batch_for_k<NUM_MODULI>(i, bcnt, k_pad);
-            const int KB               = int(common::table::k_block_first_fp8[i]);
-            const float p              = float(common::table::moduli_fp8[i]);
-            handle.fp8_k_blocking      = (k_pad > size_t(KB));
-            handle.fp8_k_block_first   = KB;
-            handle.fp8_k_block_next    = common::table::k_block_next_fp8[i];
-            handle.fp8_modulus         = p;
-            handle.fp8_neg_inv_modulus = float(-1.0 / double(common::table::moduli_fp8[i]));
-            handle.fp8_half_modulus    = 0.5f * p;
-        }
+            handle.arch, n_work, i, sizeC_Mid, sizeC_Hi,
+            lwork_blas, worksizeC, pointer_products_per_modulus);
+        bcnt = limit_batch_for_k<BACKEND>(i, bcnt, k_pad);
+        configure_matprod_k_blocking<BACKEND>(handle, i, k_pad);
 
         int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
 
@@ -253,6 +247,10 @@ inline std::vector<double> oz2_core_rk(
     constexpr cublasFillMode_t UPLO_A = CUBLAS_FILL_MODE_FULL;
     constexpr cublasFillMode_t UPLO_B = CUBLAS_FILL_MODE_FULL;
 
+    const bool memory_saving_mode    = handle.config.memory_saving;
+    const bool enable_skip_scalA_eff = memory_saving_mode ? false : enable_skip_scalA;
+    const bool skip_scalA_eff        = memory_saving_mode ? false : skip_scalA;
+
     const size_t n_pad     = common::padding(n);
     const size_t k_pad     = common::padding(k);
     const size_t lda_lo    = k_pad;
@@ -260,7 +258,7 @@ inline std::vector<double> oz2_core_rk(
     const size_t sizeA     = k_pad * n_pad;
     const size_t sizeC     = n_pad * n;
     const size_t size_vecA = n_pad;
-    const bool skipA       = skip_scalA && enable_skip_scalA;
+    const bool skipA       = skip_scalA_eff && enable_skip_scalA_eff;
 
     // Set workspace
     constexpr unsigned matmul_per_moduli = COMPLEX ? 3u : 1u;
@@ -292,9 +290,6 @@ inline std::vector<double> oz2_core_rk(
     handle.Aarray = nullptr;
     handle.Barray = nullptr;
     handle.Carray = nullptr;
-    if constexpr (BACKEND == Backend::FP8) {
-        handle.fp8_k_blocking = false;
-    }
 
     // set timer
     std::vector<double> timer(4, 0.0);
@@ -326,18 +321,8 @@ inline std::vector<double> oz2_core_rk(
 
         unsigned bcnt = batch_count<NUM_MODULI>(
             handle.arch, n, i, sizeC_Mid, sizeC_Hi, lwork_blas, worksizeC, 0u);
-
-        if constexpr (BACKEND == Backend::FP8) {
-            bcnt                       = limit_fp8_batch_for_k<NUM_MODULI>(i, bcnt, k_pad);
-            const int KB               = int(common::table::k_block_first_fp8[i]);
-            const float p              = float(common::table::moduli_fp8[i]);
-            handle.fp8_k_blocking      = (k_pad > size_t(KB));
-            handle.fp8_k_block_first   = KB;
-            handle.fp8_k_block_next    = common::table::k_block_next_fp8[i];
-            handle.fp8_modulus         = p;
-            handle.fp8_neg_inv_modulus = float(-1.0 / double(common::table::moduli_fp8[i]));
-            handle.fp8_half_modulus    = 0.5f * p;
-        }
+        bcnt = limit_batch_for_k<BACKEND>(i, bcnt, k_pad);
+        configure_matprod_k_blocking<BACKEND>(handle, i, k_pad);
 
         const size_t mid_bytes = bcnt * sizeC_Mid;
         const size_t gap       = std::max<size_t>(lwork_blas, mid_bytes);

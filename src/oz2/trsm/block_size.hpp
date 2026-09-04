@@ -1,12 +1,10 @@
 #pragma once
 #include "../common/common.hpp"
-#include "../../../include/trsm.hpp"
 
 namespace gemmul8::oz2::trsm {
 
 template <typename T, Backend BACKEND>
-inline int block_size_setting_trsm(size_t n, int arch) noexcept {
-    const int nB_override = gemmul8::get_block_size_trsm();
+inline int block_size_setting_trsm(size_t n, int arch, int nB_override) noexcept {
     if (nB_override > 0) return nB_override;
 
     constexpr bool isDouble = std::is_same_v<T, double> || std::is_same_v<T, cuDoubleComplex>;
@@ -63,7 +61,7 @@ inline int block_size_setting_trsm(size_t n, int arch) noexcept {
 }
 
 template <typename T, Backend BACKEND>
-inline int block_size_trsm(size_t n, int &arch) noexcept {
+inline int block_size_trsm(size_t n, int &arch, int nB_override = 0) noexcept {
     if (arch == 0) {
 #if defined(__CUDACC__)
     #if defined(GPU_ARCH)
@@ -80,7 +78,7 @@ inline int block_size_trsm(size_t n, int &arch) noexcept {
     #endif
 #endif
     }
-    return block_size_setting_trsm<T, BACKEND>(n, arch);
+    return block_size_setting_trsm<T, BACKEND>(n, arch, nB_override);
 }
 
 } // namespace gemmul8::oz2::trsm

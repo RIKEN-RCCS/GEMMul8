@@ -100,6 +100,11 @@
  *       t[1]: workspace size associated with A (size of workA)
  *       t[2]: workspace size associated with B (size of workB)
  *
+ * Note:
+ * 
+ *   When BACKEND = Backend::INT8 and fastmode = false, currently supports 
+ *   the inner dimension of the underlying matrix multiplication of at most 2^17.
+ *
  * Lt variant:
  *
  *   trmmLt() uses a cublasLtHandle_t / hipblasLtHandle_t and appends a stream

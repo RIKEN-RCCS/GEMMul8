@@ -257,6 +257,10 @@ void print_options(const char *prog) {
         << "  no_Ozaki2_FP8             Disable Ozaki-II FP8\n"
         << "  no_Ozaki1_INT8            Disable Ozaki-I INT8\n"
         << "\n"
+        << "Memory saving options:\n"
+        << "  memory_saving=0|1         0 = disabled; 1 = enabled\n"
+        << "  max_memory=               workspace-size limit in bytes\n"
+        << "\n"
         << "Help options:\n"
         << "  -h, --help, help Show this message and exit\n"
         << "\n"
@@ -309,6 +313,9 @@ int main(int argc, char **argv) {
     bool run_TRTRMM = false;
     bool run_TRSM   = false;
 
+    bool memory_saving_flag = false;
+    size_t memory_limit     = 0;
+
     std::vector<cublasOperation_t> trans_list   = {CUBLAS_OP_N, CUBLAS_OP_T, CUBLAS_OP_C};
     std::vector<cublasOperation_t> trans_A_list = {CUBLAS_OP_N, CUBLAS_OP_T, CUBLAS_OP_C};
     std::vector<cublasOperation_t> trans_B_list = {CUBLAS_OP_N, CUBLAS_OP_T, CUBLAS_OP_C};
@@ -332,6 +339,33 @@ int main(int argc, char **argv) {
 
         if (split_key_value(arg, key, value)) {
             try {
+
+                if (key == "MEMORY_SAVING") {
+                    if (value == "0") {
+                        memory_saving_flag = false;
+                    } else if (value == "1") {
+                        memory_saving_flag = true;
+                    } else {
+                        throw std::runtime_error("invalid memory_saving option: " + value);
+                    }
+                    continue;
+                }
+
+                if (key == "MAX_MEMORY") {
+                    if (value.empty() || !std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isdigit(c); })) {
+                        throw std::runtime_error("invalid max_memory option: " + value);
+                    }
+
+                    const unsigned long long v = std::stoull(value);
+
+                    if (v > std::numeric_limits<size_t>::max()) {
+                        throw std::runtime_error("max_memory is too large: " + value);
+                    }
+
+                    memory_limit = static_cast<size_t>(v);
+                    continue;
+                }
+
                 if (key == "UPLO") {
                     uplo_list   = parse_uplo_list(value);
                     uplo_A_list = uplo_list;
@@ -493,6 +527,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    memory_limit  = (memory_saving_flag) ? memory_limit : 0;
     run_Ozaki2_F8 = (isHopper) ? false : run_Ozaki2_F8;
 
     if (run_accuracy_sqr) {
@@ -500,11 +535,11 @@ int main(int argc, char **argv) {
         if (run_GEMM) {
             auto run_gemm_accuracy = [&](cublasOperation_t transa, cublasOperation_t transb) {
                 if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::gemm::check_accuracy<float>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                    if (run_D) bench::accuracy::gemm::check_accuracy<double>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_S) bench::accuracy::gemm::check_accuracy<float>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_D) bench::accuracy::gemm::check_accuracy<double>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
                 }
-                if (run_C) bench::accuracy::gemm::check_accuracy<cuFloatComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::gemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::gemm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::gemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_gemm_param(
@@ -515,10 +550,10 @@ int main(int argc, char **argv) {
 
         if (run_SYMM) {
             auto run_symm_accuracy = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_S) bench::accuracy::symm::check_accuracy<float>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::accuracy::symm::check_accuracy<double>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::accuracy::symm::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::symm::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::accuracy::symm::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::accuracy::symm::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::symm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::symm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_side_uplo_param(
@@ -529,10 +564,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRK) {
             auto run_syrk_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::accuracy::syrk::check_accuracy<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::accuracy::syrk::check_accuracy<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::accuracy::syrk::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::syrk::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::accuracy::syrk::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::accuracy::syrk::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::syrk::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::syrk::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_syr_param(
@@ -543,10 +578,10 @@ int main(int argc, char **argv) {
 
         if (run_SYR2K) {
             auto run_syr2k_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::accuracy::syr2k::check_accuracy<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::accuracy::syr2k::check_accuracy<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::accuracy::syr2k::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::syr2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::accuracy::syr2k::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::accuracy::syr2k::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::syr2k::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::syr2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_syr_param(
@@ -557,10 +592,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRKX) {
             auto run_syrkx_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::accuracy::syrkx::check_accuracy<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::accuracy::syrkx::check_accuracy<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::accuracy::syrkx::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::syrkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::accuracy::syrkx::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::accuracy::syrkx::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::syrkx::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::syrkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_syr_param(
@@ -571,8 +606,8 @@ int main(int argc, char **argv) {
 
         if (run_HEMM) {
             auto run_hemm_accuracy = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_C) bench::accuracy::hemm::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::hemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::hemm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::hemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_side_uplo_param(
@@ -583,8 +618,8 @@ int main(int argc, char **argv) {
 
         if (run_HERK) {
             auto run_herk_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::accuracy::herk::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::herk::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::herk::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::herk::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_her_param(
@@ -595,8 +630,8 @@ int main(int argc, char **argv) {
 
         if (run_HER2K) {
             auto run_her2k_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::accuracy::her2k::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::her2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::her2k::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::her2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_her_param(
@@ -607,8 +642,8 @@ int main(int argc, char **argv) {
 
         if (run_HERKX) {
             auto run_herkx_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::accuracy::herkx::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::herkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::herkx::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::herkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_her_param(
@@ -620,11 +655,11 @@ int main(int argc, char **argv) {
         if (run_TRMM) {
             auto run_trmm_accuracy = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::trmm::check_accuracy<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                    if (run_D) bench::accuracy::trmm::check_accuracy<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_S) bench::accuracy::trmm::check_accuracy<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_D) bench::accuracy::trmm::check_accuracy<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
                 }
-                if (run_C) bench::accuracy::trmm::check_accuracy<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::accuracy::trmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::accuracy::trmm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::accuracy::trmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_tri_param(
@@ -638,11 +673,11 @@ int main(int argc, char **argv) {
         if (run_TRSM) {
             auto run_trsm_accuracy = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag, bool is_square) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::trsm::check_accuracy<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
-                    if (run_D) bench::accuracy::trsm::check_accuracy<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                    if (run_S) bench::accuracy::trsm::check_accuracy<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                    if (run_D) bench::accuracy::trsm::check_accuracy<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
                 }
-                if (run_C) bench::accuracy::trsm::check_accuracy<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
-                if (run_Z) bench::accuracy::trsm::check_accuracy<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                if (run_C) bench::accuracy::trsm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                if (run_Z) bench::accuracy::trsm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
             };
 
             for_each_tri_param(
@@ -661,11 +696,11 @@ int main(int argc, char **argv) {
         if (run_TRTRMM) {
             auto run_trtrmm_accuracy = [&](cublasFillMode_t uplo_A, cublasFillMode_t uplo_B, cublasOperation_t trans_A, cublasOperation_t trans_B, cublasDiagType_t diag_A, cublasDiagType_t diag_B) {
                 if (trans_A != CUBLAS_OP_C && trans_B != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::trtrmm::check_accuracy<float>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::accuracy::trtrmm::check_accuracy<double>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::accuracy::trtrmm::check_accuracy<float>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::accuracy::trtrmm::check_accuracy<double>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::accuracy::trtrmm::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::trtrmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::trtrmm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::trtrmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_trtrmm_param(
@@ -684,11 +719,11 @@ int main(int argc, char **argv) {
         if (run_GEMM) {
             auto run_gemm_accuracy = [&](cublasOperation_t transa, cublasOperation_t transb) {
                 if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::gemm::check_accuracy<float>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::accuracy::gemm::check_accuracy<double>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::accuracy::gemm::check_accuracy<float>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::accuracy::gemm::check_accuracy<double>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::accuracy::gemm::check_accuracy<cuFloatComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::gemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::gemm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::gemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_gemm_param(
@@ -699,10 +734,10 @@ int main(int argc, char **argv) {
 
         if (run_SYMM) {
             auto run_symm_accuracy = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_S) bench::accuracy::symm::check_accuracy<float>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::accuracy::symm::check_accuracy<double>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::accuracy::symm::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::symm::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::accuracy::symm::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::accuracy::symm::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::symm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::symm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_side_uplo_param(
@@ -713,10 +748,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRK) {
             auto run_syrk_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::accuracy::syrk::check_accuracy<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::accuracy::syrk::check_accuracy<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::accuracy::syrk::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::syrk::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::accuracy::syrk::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::accuracy::syrk::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::syrk::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::syrk::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_syr_param(
@@ -727,10 +762,10 @@ int main(int argc, char **argv) {
 
         if (run_SYR2K) {
             auto run_syr2k_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::accuracy::syr2k::check_accuracy<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::accuracy::syr2k::check_accuracy<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::accuracy::syr2k::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::syr2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::accuracy::syr2k::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::accuracy::syr2k::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::syr2k::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::syr2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_syr_param(
@@ -741,10 +776,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRKX) {
             auto run_syrkx_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::accuracy::syrkx::check_accuracy<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::accuracy::syrkx::check_accuracy<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::accuracy::syrkx::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::syrkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::accuracy::syrkx::check_accuracy<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::accuracy::syrkx::check_accuracy<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::syrkx::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::syrkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_syr_param(
@@ -755,8 +790,8 @@ int main(int argc, char **argv) {
 
         if (run_HEMM) {
             auto run_hemm_accuracy = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_C) bench::accuracy::hemm::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::hemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::hemm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::hemm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_side_uplo_param(
@@ -767,8 +802,8 @@ int main(int argc, char **argv) {
 
         if (run_HERK) {
             auto run_herk_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::accuracy::herk::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::herk::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::herk::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::herk::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_her_param(
@@ -779,8 +814,8 @@ int main(int argc, char **argv) {
 
         if (run_HER2K) {
             auto run_her2k_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::accuracy::her2k::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::her2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::her2k::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::her2k::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_her_param(
@@ -791,8 +826,8 @@ int main(int argc, char **argv) {
 
         if (run_HERKX) {
             auto run_herkx_accuracy = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::accuracy::herkx::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::herkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::herkx::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::herkx::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_her_param(
@@ -804,11 +839,11 @@ int main(int argc, char **argv) {
         if (run_TRMM) {
             auto run_trmm_accuracy = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::trmm::check_accuracy<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::accuracy::trmm::check_accuracy<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::accuracy::trmm::check_accuracy<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::accuracy::trmm::check_accuracy<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::accuracy::trmm::check_accuracy<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::trmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::trmm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::trmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_tri_param(
@@ -822,11 +857,11 @@ int main(int argc, char **argv) {
         if (run_TRSM) {
             auto run_trsm_accuracy = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag, bool is_square) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::trsm::check_accuracy<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
-                    if (run_D) bench::accuracy::trsm::check_accuracy<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                    if (run_S) bench::accuracy::trsm::check_accuracy<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                    if (run_D) bench::accuracy::trsm::check_accuracy<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
                 }
-                if (run_C) bench::accuracy::trsm::check_accuracy<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
-                if (run_Z) bench::accuracy::trsm::check_accuracy<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                if (run_C) bench::accuracy::trsm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
+                if (run_Z) bench::accuracy::trsm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, is_square);
             };
 
             for_each_tri_param(
@@ -845,11 +880,11 @@ int main(int argc, char **argv) {
         if (run_TRTRMM) {
             auto run_trtrmm_accuracy = [&](cublasFillMode_t uplo_A, cublasFillMode_t uplo_B, cublasOperation_t trans_A, cublasOperation_t trans_B, cublasDiagType_t diag_A, cublasDiagType_t diag_B) {
                 if (trans_A != CUBLAS_OP_C && trans_B != CUBLAS_OP_C) {
-                    if (run_S) bench::accuracy::trtrmm::check_accuracy<float>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::accuracy::trtrmm::check_accuracy<double>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::accuracy::trtrmm::check_accuracy<float>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::accuracy::trtrmm::check_accuracy<double>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::accuracy::trtrmm::check_accuracy<cuFloatComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::accuracy::trtrmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::accuracy::trtrmm::check_accuracy<cuFloatComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::accuracy::trtrmm::check_accuracy<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_trtrmm_param(
@@ -868,11 +903,11 @@ int main(int argc, char **argv) {
         if (run_GEMM) {
             auto run_gemm_time = [&](cublasOperation_t transa, cublasOperation_t transb) {
                 if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
-                    if (run_S) bench::time::gemm::check_time<float>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                    if (run_D) bench::time::gemm::check_time<double>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_S) bench::time::gemm::check_time<float>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_D) bench::time::gemm::check_time<double>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
                 }
-                if (run_C) bench::time::gemm::check_time<cuFloatComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::gemm::check_time<cuDoubleComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::gemm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::gemm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_gemm_param(
@@ -883,10 +918,10 @@ int main(int argc, char **argv) {
 
         if (run_SYMM) {
             auto run_symm_time = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_S) bench::time::symm::check_time<float>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::time::symm::check_time<double>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::time::symm::check_time<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::symm::check_time<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::time::symm::check_time<float>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::time::symm::check_time<double>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::symm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::symm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for (auto side : side_list) {
@@ -898,10 +933,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRK) {
             auto run_syrk_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::time::syrk::check_time<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::time::syrk::check_time<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::time::syrk::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::syrk::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::time::syrk::check_time<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::time::syrk::check_time<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::syrk::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::syrk::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_syr_param(
@@ -912,10 +947,10 @@ int main(int argc, char **argv) {
 
         if (run_SYR2K) {
             auto run_syr2k_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::time::syr2k::check_time<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::time::syr2k::check_time<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::time::syr2k::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::syr2k::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::time::syr2k::check_time<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::time::syr2k::check_time<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::syr2k::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::syr2k::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_syr_param(
@@ -926,10 +961,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRKX) {
             auto run_syrkx_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::time::syrkx::check_time<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_D) bench::time::syrkx::check_time<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_C) bench::time::syrkx::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::syrkx::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_S) bench::time::syrkx::check_time<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_D) bench::time::syrkx::check_time<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::syrkx::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::syrkx::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_syr_param(
@@ -940,8 +975,8 @@ int main(int argc, char **argv) {
 
         if (run_HEMM) {
             auto run_hemm_time = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_C) bench::time::hemm::check_time<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::hemm::check_time<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::hemm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::hemm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_side_uplo_param(
@@ -952,8 +987,8 @@ int main(int argc, char **argv) {
 
         if (run_HERK) {
             auto run_herk_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::time::herk::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::herk::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::herk::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::herk::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_her_param(
@@ -964,8 +999,8 @@ int main(int argc, char **argv) {
 
         if (run_HER2K) {
             auto run_her2k_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::time::her2k::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::her2k::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::her2k::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::her2k::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_her_param(
@@ -976,8 +1011,8 @@ int main(int argc, char **argv) {
 
         if (run_HERKX) {
             auto run_herkx_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::time::herkx::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::herkx::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::herkx::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::herkx::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_her_param(
@@ -989,11 +1024,11 @@ int main(int argc, char **argv) {
         if (run_TRMM) {
             auto run_trmm_time = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::time::trmm::check_time<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                    if (run_D) bench::time::trmm::check_time<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_S) bench::time::trmm::check_time<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_D) bench::time::trmm::check_time<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
                 }
-                if (run_C) bench::time::trmm::check_time<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::trmm::check_time<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::trmm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::trmm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_tri_param(
@@ -1007,11 +1042,11 @@ int main(int argc, char **argv) {
         if (run_TRSM) {
             auto run_trsm_time = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::time::trsm::check_time<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                    if (run_D) bench::time::trsm::check_time<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_S) bench::time::trsm::check_time<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                    if (run_D) bench::time::trsm::check_time<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
                 }
-                if (run_C) bench::time::trsm::check_time<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
-                if (run_Z) bench::time::trsm::check_time<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_C) bench::time::trsm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
+                if (run_Z) bench::time::trsm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8, true);
             };
 
             for_each_tri_param(
@@ -1025,11 +1060,11 @@ int main(int argc, char **argv) {
         if (run_TRTRMM) {
             auto run_trtrmm_time = [&](cublasFillMode_t uplo_A, cublasFillMode_t uplo_B, cublasOperation_t trans_A, cublasOperation_t trans_B, cublasDiagType_t diag_A, cublasDiagType_t diag_B) {
                 if (trans_A != CUBLAS_OP_C && trans_B != CUBLAS_OP_C) {
-                    if (run_S) bench::time::trtrmm::check_time<float>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::time::trtrmm::check_time<double>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::time::trtrmm::check_time<float>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::time::trtrmm::check_time<double>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::time::trtrmm::check_time<cuFloatComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::trtrmm::check_time<cuDoubleComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::trtrmm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::trtrmm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_trtrmm_param(
@@ -1048,11 +1083,11 @@ int main(int argc, char **argv) {
         if (run_GEMM) {
             auto run_gemm_time = [&](cublasOperation_t transa, cublasOperation_t transb) {
                 if (transa != CUBLAS_OP_C && transb != CUBLAS_OP_C) {
-                    if (run_S) bench::time::gemm::check_time<float>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::time::gemm::check_time<double>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::time::gemm::check_time<float>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::time::gemm::check_time<double>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::time::gemm::check_time<cuFloatComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::gemm::check_time<cuDoubleComplex>(deviceName, startTime, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::gemm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::gemm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, transa, transb, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_gemm_param(
@@ -1063,10 +1098,10 @@ int main(int argc, char **argv) {
 
         if (run_SYMM) {
             auto run_symm_time = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_S) bench::time::symm::check_time<float>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::time::symm::check_time<double>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::time::symm::check_time<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::symm::check_time<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::time::symm::check_time<float>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::time::symm::check_time<double>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::symm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::symm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_side_uplo_param(
@@ -1077,10 +1112,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRK) {
             auto run_syrk_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::time::syrk::check_time<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::time::syrk::check_time<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::time::syrk::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::syrk::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::time::syrk::check_time<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::time::syrk::check_time<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::syrk::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::syrk::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_syr_param(
@@ -1091,10 +1126,10 @@ int main(int argc, char **argv) {
 
         if (run_SYR2K) {
             auto run_syr2k_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::time::syr2k::check_time<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::time::syr2k::check_time<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::time::syr2k::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::syr2k::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::time::syr2k::check_time<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::time::syr2k::check_time<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::syr2k::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::syr2k::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_syr_param(
@@ -1105,10 +1140,10 @@ int main(int argc, char **argv) {
 
         if (run_SYRKX) {
             auto run_syrkx_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_S) bench::time::syrkx::check_time<float>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_D) bench::time::syrkx::check_time<double>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_C) bench::time::syrkx::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::syrkx::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_S) bench::time::syrkx::check_time<float>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_D) bench::time::syrkx::check_time<double>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::syrkx::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::syrkx::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_syr_param(
@@ -1119,8 +1154,8 @@ int main(int argc, char **argv) {
 
         if (run_HEMM) {
             auto run_hemm_time = [&](cublasFillMode_t uplo, cublasSideMode_t side) {
-                if (run_C) bench::time::hemm::check_time<cuFloatComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::hemm::check_time<cuDoubleComplex>(deviceName, startTime, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::hemm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::hemm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, side, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_side_uplo_param(
@@ -1131,8 +1166,8 @@ int main(int argc, char **argv) {
 
         if (run_HERK) {
             auto run_herk_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::time::herk::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::herk::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::herk::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::herk::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_her_param(
@@ -1143,8 +1178,8 @@ int main(int argc, char **argv) {
 
         if (run_HER2K) {
             auto run_her2k_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::time::her2k::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::her2k::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::her2k::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::her2k::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_her_param(
@@ -1155,8 +1190,8 @@ int main(int argc, char **argv) {
 
         if (run_HERKX) {
             auto run_herkx_time = [&](cublasFillMode_t uplo, cublasOperation_t trans) {
-                if (run_C) bench::time::herkx::check_time<cuFloatComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::herkx::check_time<cuDoubleComplex>(deviceName, startTime, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::herkx::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::herkx::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo, trans, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_her_param(
@@ -1168,11 +1203,11 @@ int main(int argc, char **argv) {
         if (run_TRMM) {
             auto run_trmm_time = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::time::trmm::check_time<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::time::trmm::check_time<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::time::trmm::check_time<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::time::trmm::check_time<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::time::trmm::check_time<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::trmm::check_time<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::trmm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::trmm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_tri_param(
@@ -1186,11 +1221,11 @@ int main(int argc, char **argv) {
         if (run_TRSM) {
             auto run_trsm_time = [&](cublasSideMode_t side, cublasFillMode_t uplo, cublasOperation_t trans, cublasDiagType_t diag) {
                 if (trans != CUBLAS_OP_C) {
-                    if (run_S) bench::time::trsm::check_time<float>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::time::trsm::check_time<double>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::time::trsm::check_time<float>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::time::trsm::check_time<double>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::time::trsm::check_time<cuFloatComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::trsm::check_time<cuDoubleComplex>(deviceName, startTime, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::trsm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::trsm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, side, uplo, trans, diag, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_tri_param(
@@ -1204,11 +1239,11 @@ int main(int argc, char **argv) {
         if (run_TRTRMM) {
             auto run_trtrmm_time = [&](cublasFillMode_t uplo_A, cublasFillMode_t uplo_B, cublasOperation_t trans_A, cublasOperation_t trans_B, cublasDiagType_t diag_A, cublasDiagType_t diag_B) {
                 if (trans_A != CUBLAS_OP_C && trans_B != CUBLAS_OP_C) {
-                    if (run_S) bench::time::trtrmm::check_time<float>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                    if (run_D) bench::time::trtrmm::check_time<double>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_S) bench::time::trtrmm::check_time<float>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                    if (run_D) bench::time::trtrmm::check_time<double>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
                 }
-                if (run_C) bench::time::trtrmm::check_time<cuFloatComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
-                if (run_Z) bench::time::trtrmm::check_time<cuDoubleComplex>(deviceName, startTime, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_C) bench::time::trtrmm::check_time<cuFloatComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
+                if (run_Z) bench::time::trtrmm::check_time<cuDoubleComplex>(deviceName, startTime, memory_limit, uplo_A, uplo_B, trans_A, trans_B, diag_A, diag_B, run_Ozaki2_I8, run_Ozaki2_F8, run_Ozaki1_I8);
             };
 
             for_each_trtrmm_param(

@@ -72,6 +72,12 @@
  *     If enabled, skip scaling A and/or B and reuse the corresponding
  *     precomputed scaled matrices.
  *
+ * Memory-saving mode:
+ *     When memory saving is enabled for the input handle,
+ *     skip-scaling/reuse is disabled.
+ *     If internal blocking is required to satisfy the workspace-size limit,
+ *     workA and workB are ignored and the block workspace is taken from work.
+ *
  * Return value:
  *
  *   If work != nullptr:
@@ -86,6 +92,11 @@
  *       t[0]: total workspace size (including sizes of workA and workB)
  *       t[1]: workspace size associated with A (size of workA)
  *       t[2]: workspace size associated with B (size of workB)
+ *
+ * Note:
+ *
+ *   When BACKEND = Backend::INT8 and fastmode = false, currently supports
+ *   the inner dimension of the underlying matrix multiplication of at most 2^17.
  *
  * Lt variant:
  *

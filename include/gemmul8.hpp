@@ -26,6 +26,7 @@
  *   herkx.hpp    : Hermitian rank-k update with two input matrices
  *   trsm.hpp     : triangular solve with multiple right-hand sides
  *   trtrmm.hpp   : triangular-by-triangular matrix multiplication
+ *   config.hpp   : handle-local execution configuration
  *   worksize.hpp : required workspace size for the specified GEMMul8 operation
  *
  * Performance note:
@@ -53,6 +54,7 @@
 
 #include "types.hpp"
 #include "version.hpp"
+#include "config.hpp"
 #include "worksize.hpp"
 #include "gemm.hpp"
 #include "symm.hpp"

@@ -14,16 +14,16 @@ inline size_t workSize_update_gemm(size_t rows, size_t cols, size_t kk, unsigned
         constexpr common::MatMulKind KIND = common::MatMulKind::Gemm;
 
         lwork_gemm = core::workSize<is_Complex, BACKEND, KIND>(
-            rows, cols, kk, NUM_MODULI, false, false, nullptr, nullptr);
+            rows, cols, kk, NUM_MODULI, false, false, nullptr, nullptr, false);
     }
 
     return std::max<size_t>(lwork_gemm, lwork_blas);
 }
 
 template <typename T, Backend BACKEND>
-inline size_t workSize_left(size_t m, size_t n, unsigned NUM_MODULI) {
+inline size_t workSize_left(size_t m, size_t n, unsigned NUM_MODULI, int nB_override = 0) {
     int arch        = 0;
-    const size_t nB = size_t(block_size_trsm<T, BACKEND>(m, arch));
+    const size_t nB = size_t(block_size_trsm<T, BACKEND>(m, arch, nB_override));
     const size_t jb = std::min<size_t>(nB, m);
 
     const size_t rows = (jb < m) ? (m - jb) : 0;
@@ -31,9 +31,9 @@ inline size_t workSize_left(size_t m, size_t n, unsigned NUM_MODULI) {
 }
 
 template <typename T, Backend BACKEND>
-inline size_t workSize_right(size_t m, size_t n, unsigned NUM_MODULI) {
+inline size_t workSize_right(size_t m, size_t n, unsigned NUM_MODULI, int nB_override = 0) {
     int arch        = 0;
-    const size_t nB = size_t(block_size_trsm<T, BACKEND>(n, arch));
+    const size_t nB = size_t(block_size_trsm<T, BACKEND>(n, arch, nB_override));
     const size_t jb = std::min<size_t>(nB, n);
 
     const size_t cols = (jb < n) ? (n - jb) : 0;

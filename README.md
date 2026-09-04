@@ -9,6 +9,7 @@ The library is based on the Ozaki Scheme II and supports selectable INT8- or FP8
 This design enables bit-wise reproducible results while using low-precision matrix engines for high-throughput computation.
 
 - [Technical Overview](#technical-overview)
+- [Requirements](#requirements)
 - [Supported operations](#supported-operations)
 - [Build](#build)
   - [make options](#make-options)
@@ -20,14 +21,17 @@ This design enables bit-wise reproducible results while using low-precision matr
   - [Routine options](#routine-options)
   - [Precision options](#precision-options)
   - [Disable options](#disable-options)
+  - [Memory saving options](#memory-saving-options)
   - [BLAS parameter options](#blas-parameter-options)
   - [Examples](#examples)
 - [Usage](#usage)
   - [1. Direct Usage (Normal mode)](#1-direct-usage-normal-mode)
     - [Example: run emulation for the CUDA backend](#example-run-emulation-for-the-cuda-backend)
     - [Public API](#public-api)
+    - [Handle-local execution settings](#handle-local-execution-settings)
     - [Return value](#return-value)
     - [Workspace query](#workspace-query)
+    - [Memory-saving mode](#memory-saving-mode)
     - [TRSM implementation and block-size control](#trsm-implementation-and-block-size-control)
     - [Behavior of `skip_scalA` / `skip_scalB`](#behavior-of-skip_scala--skip_scalb)
     - [Example: GEMM with skip scaling](#example-gemm-with-skip-scaling)
@@ -36,8 +40,9 @@ This design enables bit-wise reproducible results while using low-precision matr
     - [Ex-routine dispatch policy](#ex-routine-dispatch-policy)
     - [How to enable the hook](#how-to-enable-the-hook)
     - [Configure emulation parameters via environment variables](#configure-emulation-parameters-via-environment-variables)
+    - [Handle-local settings and environment-variable overrides](#handle-local-settings-and-environment-variable-overrides)
     - [Max-workspace preallocation](#max-workspace-preallocation)
-    - [Hook workspace and skip-scaling behavior](#hook-workspace-and-skip-scaling-behavior)
+    - [Hook workspace, memory-saving, and skip-scaling behavior](#hook-workspace-memory-saving-and-skip-scaling-behavior)
     - [How to change environment variables programmatically](#how-to-change-environment-variables-programmatically)
 - [Numerical results](#numerical-results)
 - [Acknowledgment](#acknowledgment)
@@ -63,6 +68,34 @@ GEMMul8 supports two low-precision emulation backends:
 > [!CAUTION]
 >
 > This library does not support FP8-based emulation on Hopper architectures.
+
+As a practical rule of thumb, the following settings typically provide accuracy comparable to cuBLAS INT8-based fixed-point emulation with `mantissaBitCount = 55`, corresponding to INT8-based Ozaki Scheme I with 7 slices.
+
+| Backend | `num_moduli` | `fastmode`         |
+| :------ | :----------- | :----------------- |
+| INT8    | 14 or 15     | `true` (fast mode) |
+| FP8     | 10 or 11     | `true` (fast mode) |
+
+> [!NOTE]
+>
+> These values are practical starting points, not accuracy guarantees.
+> The required number of moduli depends on the input matrices and the target application.
+
+## Requirements
+
+- Linux
+- GNU Make 3.81 or later
+- C++20-capable C++ compiler
+
+- NVIDIA CUDA backend:
+  - CUDA Toolkit 12.9 or later
+  - cuBLAS and cuBLASLt
+  - NVML and cuRAND for building the test programs
+
+- AMD HIP backend:
+  - ROCm 7.0 or later
+  - hipBLAS and hipBLASLt
+  - AMD SMI and hipRAND for building the test programs
 
 ## Supported operations
 
@@ -97,6 +130,9 @@ This creates:
 
 - `lib/libgemmul8.a`
 - `lib/libgemmul8.so`
+
+The Makefile automatically detects the appropriate build configuration.
+If `make` fails, try setting the following [`make` options](#make-options).
 
 To rebuild from scratch:
 
@@ -197,6 +233,13 @@ make run MODE="<test-option>... <routine-option>... <precision-option>... [disab
 | `no_Ozaki2_FP8`  | Disable Ozaki-II FP8 tests  |
 | `no_Ozaki1_INT8` | Disable Ozaki-I INT8 tests  |
 
+### Memory saving options
+
+| Option              | Value    | Description                   |
+| :------------------ | :------- | :---------------------------- |
+| `memory_saving=...` | `0`, `1` | `0` = disabled; `1` = enabled |
+| `max_memory=...`    |          | workspace-size limit in bytes |
+
 ### BLAS parameter options
 
 By default, the test driver runs all supported combinations of BLAS parameters for each selected routine.
@@ -232,6 +275,9 @@ For `HERK`, `HER2K`, and `HERKX`, only `trans=N` and `trans=C` are used.
 ```bash
 # Run only non-transposed FP64 GEMM accuracy tests
 make run MODE="accuracy_rectangle GEMM D transA=N transB=N"
+
+# Run only non-transposed FP64 GEMM timing tests with workspace-size limit: 8 GiB
+make run MODE="time_square GEMM D transA=N transB=N memory_saving=1 max_memory=8589934592"
 
 # Run lower-triangular SYRK timing tests only
 make run MODE="time_square SYRK D uplo=lower trans=N"
@@ -270,12 +316,41 @@ Include the umbrella header:
 Each routine follows the corresponding cuBLAS/hipBLAS argument convention as closely as possible, with additional GEMMul8-specific arguments.
 See `include/gemm.hpp`, `include/symm.hpp`, etc. for the full function signatures.
 
-The TRSM block-size control API is declared in `include/trsm.hpp`:
+Handle-local execution settings are declared in `include/config.hpp`.
+For CUDA, the relevant APIs are:
 
 ```cpp
-void gemmul8::set_block_size_trsm(const int nB) noexcept;
-int gemmul8::get_block_size_trsm() noexcept;
+// cuBLAS handle
+void gemmul8::set_memory_saving(cublasHandle_t handle, bool enable) noexcept;
+bool gemmul8::get_memory_saving(cublasHandle_t handle) noexcept;
+
+void gemmul8::set_max_worksize(cublasHandle_t handle, size_t bytes) noexcept;
+size_t gemmul8::get_max_worksize(cublasHandle_t handle) noexcept;
+
+void gemmul8::set_block_size_trsm(cublasHandle_t handle, int nB) noexcept;
+int gemmul8::get_block_size_trsm(cublasHandle_t handle) noexcept;
+
+void gemmul8::clear_config(cublasHandle_t handle) noexcept;
+
+// cuBLASLt handle
+void gemmul8::set_memory_savingLt(cublasLtHandle_t handle, bool enable) noexcept;
+bool gemmul8::get_memory_savingLt(cublasLtHandle_t handle) noexcept;
+
+void gemmul8::set_max_worksizeLt(cublasLtHandle_t handle, size_t bytes) noexcept;
+size_t gemmul8::get_max_worksizeLt(cublasLtHandle_t handle) noexcept;
+
+void gemmul8::set_block_size_trsmLt(cublasLtHandle_t handle, int nB) noexcept;
+int gemmul8::get_block_size_trsmLt(cublasLtHandle_t handle) noexcept;
+
+void gemmul8::clear_configLt(cublasLtHandle_t handle) noexcept;
 ```
+
+The corresponding HIP APIs use `hipblasHandle_t` / `hipblasLtHandle_t`.
+
+> [!IMPORTANT]
+>
+> `set_block_size_trsm()` is handle-local and requires a BLAS handle.
+> This is a breaking API change from GEMMul8 v3.2.0 and earlier releases, in which the TRSM block size was configured globally.
 
 > [!NOTE]
 >
@@ -297,6 +372,26 @@ int gemmul8::get_block_size_trsm() noexcept;
 > ```text
 > X * op(A) = alpha * B
 > ```
+
+#### Handle-local execution settings
+
+The memory-saving flag, workspace-size limit, and TRSM block-size override are associated with individual BLAS/Lt handles.
+Different handles can therefore use different settings concurrently.
+
+The default settings are:
+
+- memory saving: disabled;
+- maximum workspace size: 12 GiB;
+- TRSM block-size override: non-positive, which selects automatic block-size selection.
+
+A getter returns the setting currently associated with the specified handle.
+For the TRSM block size, a non-positive value means that automatic architecture/backend-dependent selection is enabled; the getter does not report the automatically selected internal block size.
+
+> [!CAUTION]
+>
+> In direct mode, if GEMMul8-specific handle-local settings have been used, call `clear_config(handle)` or `clear_configLt(handle)` before destroying the corresponding BLAS/Lt handle.
+>
+> In hook mode, GEMMul8 removes the configuration associated with an intercepted BLAS handle automatically when the handle is destroyed.
 
 #### Return value
 
@@ -340,6 +435,7 @@ GEMMul8 provides two ways to query the required workspace size.
 
 - `gemmul8::workSize`
 - `gemmul8::workSizeTrsm`
+- `gemmul8::workSizeTrsmLt`
 
 2. Call the corresponding GEMMul8 routine with `work == nullptr`.
 
@@ -361,9 +457,82 @@ The compact size arguments are interpreted as follows.
 | `trmm` with `side == RIGHT`         | `workSize(m, n, n, ...)`    |
 | `trtrmm`                            | `workSize(n, n, n, ...)`    |
 
-For `trsm`, use the dedicated query function `gemmul8::workSizeTrsm`.
-`workSizeTrsm()` depends on `side`, `m`, `n`, `num_moduli`, the selected backend, the element type, and the current TRSM block-size.
-When a custom TRSM block size is used, call `gemmul8::set_block_size_trsm(nB)` before calling `workSizeTrsm()` and before allocating the workspace.
+For `trsm`, use `workSizeTrsm(handle, ...)` for a standard BLAS handle or `workSizeTrsmLt(handle, ...)` for an Lt handle.
+The returned workspace size depends on `side`, `m`, `n`, `num_moduli`, the selected backend, the element type, and the TRSM block-size setting associated with the specified handle.
+
+When using a custom TRSM block size, configure the same handle before querying the workspace:
+
+```cpp
+gemmul8::set_block_size_trsm(handle, 2048);
+
+const size_t worksize =
+    gemmul8::workSizeTrsm<double, gemmul8::Backend::INT8>(
+        handle, side, m, n, num_moduli);
+```
+
+> [!NOTE]
+>
+> The workspace-size limit configured by `set_max_worksize()` / `set_max_worksizeLt()` does **not** change the value returned by `workSize()`, `workSizeTrsm()`, or `workSizeTrsmLt()`.
+> These query functions report the default/full workspace requirement.
+
+#### Memory-saving mode
+
+GEMMul8 can reduce the workspace required by BLAS-like operations by internally blocking the operation.
+Memory saving is configured independently for each BLAS/Lt handle:
+
+```cpp
+gemmul8::set_memory_saving(handle, true);
+gemmul8::set_max_worksize(handle, size_t(4) << 30); // 4 GiB
+```
+
+When memory saving is enabled:
+
+- if the default/full workspace requirement does not exceed the configured limit, GEMMul8 uses the normal unblocked execution path;
+- if the default/full workspace requirement exceeds the configured limit, GEMMul8 selects block sizes internally and executes the operation as a sequence of smaller BLAS-like operations;
+- skip scaling/reuse is disabled, regardless of the `enable_skip_scalA`, `enable_skip_scalB`, `skip_scalA`, and `skip_scalB` arguments.
+
+If internal blocking is required, `workA` and `workB` are not used by the blocked path.
+The block workspace is taken entirely from `work`.
+
+In general, a larger workspace-size limit allows larger blocks and can provide better performance.
+
+A workspace-size limit of zero disables workspace limiting:
+
+```cpp
+gemmul8::set_max_worksize(handle, 0);
+```
+
+In this case, GEMMul8 uses the default/full workspace even if memory saving is enabled.
+Skip scaling/reuse remains disabled while memory saving itself is enabled.
+
+For a simple direct-mode memory-saving allocation, the caller can allocate a single `work` buffer:
+
+```cpp
+const size_t limit = size_t(4) << 30;
+gemmul8::set_memory_saving(handle, true);
+gemmul8::set_max_worksize(handle, limit);
+
+const size_t full_worksize = gemmul8::workSize(m, n, k, num_moduli);
+
+const size_t allocated_worksize = std::min(full_worksize, limit);
+
+void *work = nullptr;
+cudaMalloc(&work, allocated_worksize);
+
+gemmul8::gemm(
+    handle,
+    transA, transB,
+    m, n, k,
+    &alpha, A, lda,
+    B, ldb,
+    &beta, C, ldc,
+    num_moduli, fastmode,
+    work);
+
+cudaFree(work);
+```
+
+If `set_max_worksize(handle, 0)` is used instead, allocate the full workspace.
 
 #### TRSM implementation and block-size control
 
@@ -374,28 +543,29 @@ The implementation combines:
 - standard cuBLAS/hipBLAS TRSM for triangular solves on diagonal blocks, and
 - `gemmul8::gemm` / `gemmul8::gemmLt` for updates to the remaining blocks.
 
-The internal block size can be controlled with:
+The internal TRSM block size is configured independently for each handle:
 
 ```cpp
-gemmul8::set_block_size_trsm(const int nB);
+gemmul8::set_block_size_trsm(handle, nB);
+gemmul8::set_block_size_trsmLt(ltHandle, nB);
 ```
 
-If `set_block_size_trsm(nB)` has not been called, or if the value set by `set_block_size_trsm(nB)` is non-positive, GEMMul8 automatically selects the TRSM block size from the detected GPU architecture and backend.
+A positive value selects the specified block size.
+A non-positive value enables automatic architecture/backend-dependent selection.
+
+The corresponding getter returns the explicitly configured value for that handle.
+It does not return the automatically selected internal block size.
 
 > [!NOTE]
 >
 > The automatically selected TRSM block size is a heuristic default and is not guaranteed to be the fastest setting.
-> For performance tuning, benchmark several block sizes and set a custom value with `gemmul8::set_block_size_trsm(nB)`.
+> For performance tuning, benchmark several block sizes and set a custom value for the corresponding handle.
 
-A positive value passed to `set_block_size_trsm(nB)` is used as the block size for subsequent `trsm()` and `trsmLt()` calls.
-The setting is process-global and also affects the workspace size returned by `workSizeTrsm()`.
-Therefore, when using a custom block size, call `set_block_size_trsm(nB)` before calling `workSizeTrsm()` and before allocating the workspace.
+The block-size setting also affects the workspace size returned by `workSizeTrsm()` / `workSizeTrsmLt()`.
+Therefore, when using a custom block size, set it before querying and allocating the TRSM workspace.
 
-> [!CAUTION]
->
-> `get_block_size_trsm()` only returns the value explicitly set by `set_block_size_trsm()`.
-> It does not report the block size automatically selected by GEMMul8.
-> Therefore, if get_block_size_trsm() returns a non-positive value, it means that automatic block-size selection is enabled, not that the internally selected block size is non-positive.
+When memory saving is enabled, the existing TRSM solve blocking is retained.
+The GEMM updates are executed through GEMMul8's GEMM path and are themselves memory-saving blocked when their workspace requirement exceeds the configured limit.
 
 #### Behavior of `skip_scalA` / `skip_scalB`
 
@@ -405,6 +575,10 @@ It applies to routines that expose `workA`, `workB`, `enable_skip_scalA`, `enabl
 > [!NOTE]
 >
 > It does not apply to `trsm`, because the current `trsm` interface does not expose skip-scaling arguments.
+
+> [!IMPORTANT]
+>
+> Skip scaling/reuse is disabled whenever memory saving is enabled for the corresponding handle, even when the configured workspace-size limit is zero.
 
 - Most routines internally preprocess the input matrices `A` and/or `B` into a backend-specific low-precision representation (INT8/FP8) and perform modular multiplications across multiple moduli.
 - This preprocessing step can be **skipped** in consecutive calls if the same matrices are reused, allowing for substantial performance gains.
@@ -598,6 +772,14 @@ TRSM_LEFT, TRSM_RIGHT
 
 For side-dependent routines, the suffix depends on the runtime `side` argument.
 
+The following three variables are global hook-mode overrides of handle-local execution settings:
+
+```text
+GEMMUL8_MEMORY_SAVING
+GEMMUL8_MAX_WORKSIZE
+GEMMUL8_BLK_SIZE_TRSM
+```
+
 > [!CAUTION]
 >
 > `trtrmm` is not a hook target because it is a GEMMul8-specific routine and has no standard cuBLAS/hipBLAS routine to intercept.
@@ -633,6 +815,12 @@ export GEMMUL8_BACKEND_TRSM_LEFT=INT8
 export GEMMUL8_NUM_MOD_D_TRSM_LEFT=10
 export GEMMUL8_FASTMODE_D_TRSM_LEFT=0
 
+# Memory-saving override
+export GEMMUL8_MEMORY_SAVING=1
+
+# Workspace-size limit in bytes: 4 GiB
+export GEMMUL8_MAX_WORKSIZE=4294967296
+
 # Global TRSM block-size override
 # 0 (default): automatic architecture/backend-dependent selection
 # >0: use the specified block size
@@ -643,42 +831,67 @@ export GEMMUL8_SKIP_SCALE_A=1
 export GEMMUL8_SKIP_SCALE_B=1
 ```
 
-| Variable pattern          | Default | Description                                                                                        |
-| :------------------------ | :------ | :------------------------------------------------------------------------------------------------- |
-| `GEMMUL8_BACKEND_<OP>`    | `INT8`  | Selects the emulation backend. `0` or `INT8` = INT8 backend; `1` or `FP8` = FP8 backend.           |
-| `GEMMUL8_NUM_MOD_S_<OP>`  | `0`     | Number of moduli for FP32 real routines. Native BLAS is used if outside `[2, 13]`.                 |
-| `GEMMUL8_NUM_MOD_D_<OP>`  | `0`     | Number of moduli for FP64 real routines. Native BLAS is used if outside `[2, 20]`.                 |
-| `GEMMUL8_NUM_MOD_C_<OP>`  | `0`     | Number of moduli for FP32 complex routines. Native BLAS is used if outside `[2, 13]`.              |
-| `GEMMUL8_NUM_MOD_Z_<OP>`  | `0`     | Number of moduli for FP64 complex routines. Native BLAS is used if outside `[2, 20]`.              |
-| `GEMMUL8_FASTMODE_S_<OP>` | `1`     | Fast mode switch for FP32 real routines. `1` = fast mode; `0` = accurate mode.                     |
-| `GEMMUL8_FASTMODE_D_<OP>` | `1`     | Fast mode switch for FP64 real routines. `1` = fast mode; `0` = accurate mode.                     |
-| `GEMMUL8_FASTMODE_C_<OP>` | `1`     | Fast mode switch for FP32 complex routines. `1` = fast mode; `0` = accurate mode.                  |
-| `GEMMUL8_FASTMODE_Z_<OP>` | `1`     | Fast mode switch for FP64 complex routines. `1` = fast mode; `0` = accurate mode.                  |
-| `GEMMUL8_BLK_SIZE_TRSM`   | `0`     | Global TRSM block-size override. `>0` uses the specified size; `<=0` restores automatic selection. |
-| `GEMMUL8_SKIP_SCALE_A`    | `0`     | Global switch that enables reuse of preprocessed/scaled `A` when the operand cache key matches.    |
-| `GEMMUL8_SKIP_SCALE_B`    | `0`     | Global switch that enables reuse of preprocessed/scaled `B` when the operand cache key matches.    |
+| Variable pattern          | Default | Description                                                                                                               |
+| :------------------------ | :------ | :------------------------------------------------------------------------------------------------------------------------ |
+| `GEMMUL8_BACKEND_<OP>`    | `INT8`  | Selects the emulation backend. `0` or `INT8` = INT8 backend; `1` or `FP8` = FP8 backend.                                  |
+| `GEMMUL8_NUM_MOD_S_<OP>`  | `0`     | Number of moduli for FP32 real routines. Native BLAS is used if outside `[2, 13]`.                                        |
+| `GEMMUL8_NUM_MOD_D_<OP>`  | `0`     | Number of moduli for FP64 real routines. Native BLAS is used if outside `[2, 20]`.                                        |
+| `GEMMUL8_NUM_MOD_C_<OP>`  | `0`     | Number of moduli for FP32 complex routines. Native BLAS is used if outside `[2, 13]`.                                     |
+| `GEMMUL8_NUM_MOD_Z_<OP>`  | `0`     | Number of moduli for FP64 complex routines. Native BLAS is used if outside `[2, 20]`.                                     |
+| `GEMMUL8_FASTMODE_S_<OP>` | `1`     | Fast mode switch for FP32 real routines. `1` = fast mode; `0` = accurate mode.                                            |
+| `GEMMUL8_FASTMODE_D_<OP>` | `1`     | Fast mode switch for FP64 real routines. `1` = fast mode; `0` = accurate mode.                                            |
+| `GEMMUL8_FASTMODE_C_<OP>` | `1`     | Fast mode switch for FP32 complex routines. `1` = fast mode; `0` = accurate mode.                                         |
+| `GEMMUL8_FASTMODE_Z_<OP>` | `1`     | Fast mode switch for FP64 complex routines. `1` = fast mode; `0` = accurate mode.                                         |
+| `GEMMUL8_MEMORY_SAVING`   | unset   | Overrides the handle-local memory-saving setting when defined. `1` = enabled; `0` = disabled.                             |
+| `GEMMUL8_MAX_WORKSIZE`    | unset   | Overrides the handle-local workspace-size limit when defined. Value is in bytes. `0` disables workspace limiting.         |
+| `GEMMUL8_BLK_SIZE_TRSM`   | unset   | Overrides the handle-local TRSM block size when defined. `>0` uses the specified size; `<=0` enables automatic selection. |
+| `GEMMUL8_SKIP_SCALE_A`    | `0`     | Global switch that enables reuse of preprocessed/scaled `A` when the operand cache key matches.                           |
+| `GEMMUL8_SKIP_SCALE_B`    | `0`     | Global switch that enables reuse of preprocessed/scaled `B` when the operand cache key matches.                           |
+
+#### Handle-local settings and environment-variable overrides
+
+`GEMMUL8_MEMORY_SAVING`, `GEMMUL8_MAX_WORKSIZE`, and `GEMMUL8_BLK_SIZE_TRSM` override the corresponding handle-local setting only when the environment variable is explicitly defined.
+
+If an environment variable is not defined, the current value configured through the public `gemmul8::set_*()` API is used.
+
+When defined, the environment variable has precedence for matching hook calls.
+These configuration variables are read repeatedly rather than being cached at process initialization:
+
+- `GEMMUL8_MEMORY_SAVING` and `GEMMUL8_MAX_WORKSIZE` are read on intercepted GEMMul8 emulation calls;
+- `GEMMUL8_BLK_SIZE_TRSM` is read on intercepted TRSM calls before the TRSM workspace is queried.
+
+Therefore, changing one of these values during program execution takes effect from the next matching call.
+
+> [!NOTE]
+>
+> The value of an explicitly defined configuration environment variable is copied into the handle-local configuration.
+> Unsetting the environment variable does not restore the value that was present before the override.
+> To change or reset the setting, explicitly set the desired value through the environment variable or the public setter.
+
+Memory saving disables skip-scaling/reuse.
+Therefore, while `GEMMUL8_MEMORY_SAVING=1` or the corresponding handle-local memory-saving setting is enabled, `GEMMUL8_SKIP_SCALE_A` and `GEMMUL8_SKIP_SCALE_B` do not cause preprocessing reuse.
 
 #### Max-workspace preallocation
 
 GEMMul8 normally grows hook workspaces on demand. To stabilize workspace addresses, avoid reallocating workspace, and improve skip-scaling reuse, define the maximum BLAS size arguments for the operations that will be used.
 
-| Operation suffix | Required size variables                                          | Internal workspace query         |
-| :--------------- | :--------------------------------------------------------------- | :------------------------------- |
-| `GEMM`           | `GEMMUL8_MAX_M_GEMM`, `GEMMUL8_MAX_N_GEMM`, `GEMMUL8_MAX_K_GEMM` | `workSize(m, n, k, ...)`         |
-| `SYMM_LEFT`      | `GEMMUL8_MAX_M_SYMM_LEFT`, `GEMMUL8_MAX_N_SYMM_LEFT`             | `workSize(m, n, m, ...)`         |
-| `SYMM_RIGHT`     | `GEMMUL8_MAX_M_SYMM_RIGHT`, `GEMMUL8_MAX_N_SYMM_RIGHT`           | `workSize(m, n, n, ...)`         |
-| `SYRK`           | `GEMMUL8_MAX_N_SYRK`, `GEMMUL8_MAX_K_SYRK`                       | `workSize(n, n, k, ...)`         |
-| `SYR2K`          | `GEMMUL8_MAX_N_SYR2K`, `GEMMUL8_MAX_K_SYR2K`                     | `workSize(n, n, k, ...)`         |
-| `SYRKX`          | `GEMMUL8_MAX_N_SYRKX`, `GEMMUL8_MAX_K_SYRKX`                     | `workSize(n, n, k, ...)`         |
-| `HEMM_LEFT`      | `GEMMUL8_MAX_M_HEMM_LEFT`, `GEMMUL8_MAX_N_HEMM_LEFT`             | `workSize(m, n, m, ...)`         |
-| `HEMM_RIGHT`     | `GEMMUL8_MAX_M_HEMM_RIGHT`, `GEMMUL8_MAX_N_HEMM_RIGHT`           | `workSize(m, n, n, ...)`         |
-| `HERK`           | `GEMMUL8_MAX_N_HERK`, `GEMMUL8_MAX_K_HERK`                       | `workSize(n, n, k, ...)`         |
-| `HER2K`          | `GEMMUL8_MAX_N_HER2K`, `GEMMUL8_MAX_K_HER2K`                     | `workSize(n, n, k, ...)`         |
-| `HERKX`          | `GEMMUL8_MAX_N_HERKX`, `GEMMUL8_MAX_K_HERKX`                     | `workSize(n, n, k, ...)`         |
-| `TRMM_LEFT`      | `GEMMUL8_MAX_M_TRMM_LEFT`, `GEMMUL8_MAX_N_TRMM_LEFT`             | `workSize(m, n, m, ...)`         |
-| `TRMM_RIGHT`     | `GEMMUL8_MAX_M_TRMM_RIGHT`, `GEMMUL8_MAX_N_TRMM_RIGHT`           | `workSize(m, n, n, ...)`         |
-| `TRSM_LEFT`      | `GEMMUL8_MAX_M_TRSM_LEFT`, `GEMMUL8_MAX_N_TRSM_LEFT`             | `workSizeTrsm(LEFT, m, n, ...)`  |
-| `TRSM_RIGHT`     | `GEMMUL8_MAX_M_TRSM_RIGHT`, `GEMMUL8_MAX_N_TRSM_RIGHT`           | `workSizeTrsm(RIGHT, m, n, ...)` |
+| Operation suffix | Required size variables                                          | Internal workspace query |
+| :--------------- | :--------------------------------------------------------------- | :----------------------- |
+| `GEMM`           | `GEMMUL8_MAX_M_GEMM`, `GEMMUL8_MAX_N_GEMM`, `GEMMUL8_MAX_K_GEMM` | `workSize(m, n, k, ...)` |
+| `SYMM_LEFT`      | `GEMMUL8_MAX_M_SYMM_LEFT`, `GEMMUL8_MAX_N_SYMM_LEFT`             | `workSize(m, n, m, ...)` |
+| `SYMM_RIGHT`     | `GEMMUL8_MAX_M_SYMM_RIGHT`, `GEMMUL8_MAX_N_SYMM_RIGHT`           | `workSize(m, n, n, ...)` |
+| `SYRK`           | `GEMMUL8_MAX_N_SYRK`, `GEMMUL8_MAX_K_SYRK`                       | `workSize(n, n, k, ...)` |
+| `SYR2K`          | `GEMMUL8_MAX_N_SYR2K`, `GEMMUL8_MAX_K_SYR2K`                     | `workSize(n, n, k, ...)` |
+| `SYRKX`          | `GEMMUL8_MAX_N_SYRKX`, `GEMMUL8_MAX_K_SYRKX`                     | `workSize(n, n, k, ...)` |
+| `HEMM_LEFT`      | `GEMMUL8_MAX_M_HEMM_LEFT`, `GEMMUL8_MAX_N_HEMM_LEFT`             | `workSize(m, n, m, ...)` |
+| `HEMM_RIGHT`     | `GEMMUL8_MAX_M_HEMM_RIGHT`, `GEMMUL8_MAX_N_HEMM_RIGHT`           | `workSize(m, n, n, ...)` |
+| `HERK`           | `GEMMUL8_MAX_N_HERK`, `GEMMUL8_MAX_K_HERK`                       | `workSize(n, n, k, ...)` |
+| `HER2K`          | `GEMMUL8_MAX_N_HER2K`, `GEMMUL8_MAX_K_HER2K`                     | `workSize(n, n, k, ...)` |
+| `HERKX`          | `GEMMUL8_MAX_N_HERKX`, `GEMMUL8_MAX_K_HERKX`                     | `workSize(n, n, k, ...)` |
+| `TRMM_LEFT`      | `GEMMUL8_MAX_M_TRMM_LEFT`, `GEMMUL8_MAX_N_TRMM_LEFT`             | `workSize(m, n, m, ...)` |
+| `TRMM_RIGHT`     | `GEMMUL8_MAX_M_TRMM_RIGHT`, `GEMMUL8_MAX_N_TRMM_RIGHT`           | `workSize(m, n, n, ...)` |
+| `TRSM_LEFT`      | `GEMMUL8_MAX_M_TRSM_LEFT`, `GEMMUL8_MAX_N_TRSM_LEFT`             | TRSM workspace query     |
+| `TRSM_RIGHT`     | `GEMMUL8_MAX_M_TRSM_RIGHT`, `GEMMUL8_MAX_N_TRSM_RIGHT`           | TRSM workspace query     |
 
 Additional max-workspace variables are also operation-specific:
 
@@ -686,6 +899,13 @@ Additional max-workspace variables are also operation-specific:
 | :--------------------------- | :------ | :----------------------------------------------------------------------------------------------------------------- |
 | `GEMMUL8_MAXWS_BACKEND_<OP>` | `INT8`  | Backend used for max-workspace calculation. `0` or `INT8` = INT8, `1` or `FP8` = FP8, `2` or `BOTH` = max of both. |
 | `GEMMUL8_MAX_NUM_MOD_<OP>`   | `2`     | Number of moduli used for max-workspace calculation.                                                               |
+
+> [!NOTE]
+>
+> `GEMMUL8_MAX_WORKSIZE` and the max-workspace preallocation variables have different purposes.
+>
+> - `GEMMUL8_MAX_WORKSIZE` is the workspace-size limit used by the memory-saving mechanism.
+> - `GEMMUL8_MAX_M_*`, `GEMMUL8_MAX_N_*`, `GEMMUL8_MAX_K_*`, `GEMMUL8_MAX_NUM_MOD_*`, and `GEMMUL8_MAXWS_BACKEND_*` are used to preallocate hook workspaces for selected maximum problem sizes.
 
 > [!NOTE]
 >
@@ -734,26 +954,32 @@ export GEMMUL8_MAX_N_TRSM_LEFT=32768
 export GEMMUL8_MAX_NUM_MOD_TRSM_LEFT=10
 ```
 
-#### Hook workspace and skip-scaling behavior
+#### Hook workspace, memory-saving, and skip-scaling behavior
 
-This hook mode maintains an independent workspace per BLAS handle (`cublasHandle_t` / `hipblasHandle_t`).
+Hook mode maintains an independent workspace per BLAS handle (`cublasHandle_t` / `hipblasHandle_t`).
 
 For each handle, the hook allocates GPU work buffers used by the emulation routine.
 
 - For routines that support skip scaling, the hook may keep separate `workA` and/or `workB` cache areas for preprocessed input matrices.
 - The remaining workspace is used as the routine's internal work buffer.
-- For `trsm`, the current direct interface uses a single workspace and does not expose `workA` or `workB`.
+- For `trsm`, the direct interface uses a single workspace and does not expose `workA` or `workB`.
 
-Each buffer follows a grow-only policy: it is resized upward on demand and is never shrunk automatically.
+Under normal execution, hook workspaces grow on demand and are reused across calls.
 
-Allocation/free use stream-ordered APIs (`cudaMallocAsync/cudaFreeAsync` or HIP equivalents) on the current stream. When the same handle is used with different CUDA/HIP streams across calls, the hook enforces ordering by inserting an event dependency (`eventRecord` on the previous stream -> `streamWaitEvent` on the current stream).
+When memory saving is active, however, GEMMul8 may release or reallocate existing work buffers in order to satisfy the configured workspace-size limit.
+If internal blocking is required, the dedicated `workA` and `workB` buffers are not used by the blocked path; the block workspace is allocated as a single internal work buffer.
+
+Allocation/free use stream-ordered APIs (`cudaMallocAsync/cudaFreeAsync` or HIP equivalents) on the current stream.
+When the same handle is used with different CUDA/HIP streams across calls, the hook enforces ordering by inserting an event dependency (`eventRecord` on the previous stream -> `streamWaitEvent` on the current stream).
 
 The workspaces are released when the corresponding handle is destroyed.
 
 > [!IMPORTANT]
 >
-> `GEMMUL8_SKIP_SCALE_A=1` and/or `GEMMUL8_SKIP_SCALE_B=1` enables automatic reuse of already-preprocessed intermediate data for `A` and/or `B` within the hook, when it is safe according to the cache conditions below.
+> Skip scaling/reuse is disabled while memory saving is enabled.
+> Therefore, `GEMMUL8_SKIP_SCALE_A=1` and `GEMMUL8_SKIP_SCALE_B=1` have no preprocessing-reuse effect while memory saving is enabled for the corresponding handle.
 >
+> When memory saving is disabled, `GEMMUL8_SKIP_SCALE_A=1` and/or `GEMMUL8_SKIP_SCALE_B=1` enables automatic reuse of already-preprocessed intermediate data for `A` and/or `B` within the hook, when it is safe according to the cache conditions below.
 > The decision is based on pointer identity and cached metadata only. The hook does not verify the contents of `A` or `B`.
 
 Automatic skipping for `A` or `B` is enabled only when all of the following hold between consecutive calls:
@@ -772,29 +998,25 @@ If any condition differs, the hook performs preprocessing again for that operand
 
 > [!TIP]
 >
-> To keep internal workspace pointers stable across calls, define the operation-specific maximum-size variables for the operations that will be used.
-> For example,
->
-> - use `GEMMUL8_MAX_M_GEMM`, `GEMMUL8_MAX_N_GEMM`, `GEMMUL8_MAX_K_GEMM`, and `GEMMUL8_MAX_NUM_MOD_GEMM` for GEMM;
-> - use `GEMMUL8_MAX_M_TRMM_RIGHT`, `GEMMUL8_MAX_N_TRMM_RIGHT`, and `GEMMUL8_MAX_NUM_MOD_TRMM_RIGHT` for right-side TRMM.
->
+> To keep internal workspace pointers stable across calls when memory saving is disabled, define the operation-specific maximum-size variables for the operations that will be used.
 > If you may switch backend for an operation at runtime, set `GEMMUL8_MAXWS_BACKEND_<OP>=BOTH`.
 
 > [!CAUTION]
 >
-> Skip scaling assumes that the contents of `A` or `B` remain unchanged in GPU memory. If `A` or `B` data are modified between routine calls, do not rely on skipping.
+> Skip scaling assumes that the contents of `A` or `B` remain unchanged in GPU memory.
+> If `A` or `B` data are modified between routine calls, do not rely on skipping.
 
 > [!NOTE]
 >
 > `GEMMUL8_MAX_*_<OP>`, `GEMMUL8_MAXWS_BACKEND_<OP>`, and `GEMMUL8_MAX_NUM_MOD_<OP>` are read only once on first hook use to compute the maximum workspace sizes.
 >
 > Runtime variables such as `GEMMUL8_NUM_MOD_<S|D|C|Z>_<OP>`, `GEMMUL8_FASTMODE_<S|D|C|Z>_<OP>`, `GEMMUL8_BACKEND_<OP>`, and `GEMMUL8_SKIP_SCALE_*` are read at each intercepted routine call.
-> `GEMMUL8_BLK_SIZE_TRSM` is likewise read at each intercepted TRSM call.
-> Because the TRSM block size affects `workSizeTrsm()`, the hook refreshes the block-size override before querying or allocating the TRSM workspace.
+>
+> `GEMMUL8_MEMORY_SAVING`, `GEMMUL8_MAX_WORKSIZE`, and `GEMMUL8_BLK_SIZE_TRSM` are also read dynamically as described above.
 
 #### How to change environment variables programmatically
 
-You can also set these environment variables programmatically from within your code using setenv.
+You can set these environment variables programmatically using `setenv()`.
 
 ```cpp
 // Run GEMM emulation with Backend = INT8, num_moduli = 15 & fastmode = true
@@ -808,6 +1030,45 @@ setenv("GEMMUL8_FASTMODE_D_GEMM", "1", 1);
 cublasDgemm_v2(...);
 ```
 
+Memory-saving settings can also be changed during execution:
+
+```cpp
+setenv("GEMMUL8_MEMORY_SAVING", "1", 1);
+setenv("GEMMUL8_MAX_WORKSIZE", "4294967296", 1); // 4 GiB
+
+cublasDgemm_v2(...); // 4-GiB workspace-size limit
+
+setenv("GEMMUL8_MAX_WORKSIZE", "8589934592", 1); // 8 GiB
+
+cublasDgemm_v2(...); // next call uses the 8-GiB limit
+```
+
+The TRSM block-size override is likewise reread:
+
+```cpp
+setenv("GEMMUL8_BLK_SIZE_TRSM", "1024", 1);
+cublasDtrsm_v2(...); // block size 1024
+
+setenv("GEMMUL8_BLK_SIZE_TRSM", "2048", 1);
+cublasDtrsm_v2(...); // next TRSM call uses 2048
+
+setenv("GEMMUL8_BLK_SIZE_TRSM", "0", 1);
+cublasDtrsm_v2(...); // automatic block-size selection
+```
+
+The public handle-local setters can also be changed during execution when the corresponding environment variable is not defined:
+
+```cpp
+gemmul8::set_memory_saving(handle, true);
+gemmul8::set_max_worksize(handle, size_t(4) << 30);
+cublasDgemm_v2(...);
+
+gemmul8::set_max_worksize(handle, size_t(8) << 30);
+cublasDgemm_v2(...);
+```
+
+If a corresponding environment variable is explicitly defined, that environment-variable value overrides the setter value for matching hook calls.
+
 ## Numerical results
 
 See numerical results in the separate repository: [GEMMul8_numerical_results](https://github.com/UCHINO-Yuki/GEMMul8_numerical_results)
@@ -819,24 +1080,22 @@ See numerical results in the separate repository: [GEMMul8_numerical_results](ht
 
 ### Assistance with debugging
 
-- Patrick Gutsche (École Normale Supérieure de Lyon, France)
-- Prajval Kumar (Indian Institute of Science and Education Research, India)
-- Dr. William Dawson (RIKEN Center for Computational Science, Japan)
-- Dr. Toshiyuki Imamura (RIKEN Center for Computational Science, Japan)
+- Patrick Gutsche (École Normale Supérieure de Lyon, France; affiliation as of 2025)
+- Prajval Kumar (Indian Institute of Science and Education Research, India; affiliation as of 2025)
+- Dr. William Dawson (RIKEN Center for Computational Science, Japan; affiliation as of 2025)
+- Dr. Toshiyuki Imamura (RIKEN Center for Computational Science, Japan; affiliation as of 2025)
 
 ### Assistance with preliminary experiments
 
 The following individuals helped conduct preliminary performance experiments on B200 systems at Yokota Lab:
 
-- Dr. Qianxiang Ma (RIKEN Center for Computational Science, Japan)
-- Prof. Rio Yokota (Institute of Science Tokyo, Japan)
+- Dr. Qianxiang Ma (RIKEN Center for Computational Science, Japan; affiliation as of 2025)
+- Prof. Rio Yokota (Institute of Science Tokyo, Japan; affiliation as of 2025)
 
 The following individuals helped conduct preliminary experiments on the B200 environment of SAKURAONE, SAKURA internet Inc.'s managed HPC cluster service:
 
-- Takeshi Yamashita (SAKURA internet Inc., Japan)
-- Fumikazu Konishi (SAKURA internet Inc., Japan)
-
-(Affiliations as of 2025)
+- Takeshi Yamashita (SAKURA internet Inc., Japan; affiliation as of 2025)
+- Fumikazu Konishi (SAKURA internet Inc., Japan; affiliation as of 2025)
 
 ## Contact (Responsible Developer)
 

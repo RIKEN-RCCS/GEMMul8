@@ -35,6 +35,10 @@
     #undef avail_Ozaki1
 #endif
 
+#ifdef Ozaki1_8GB
+    #undef Ozaki1_8GB
+#endif
+
 #ifdef avail_BF16x9
     #undef avail_BF16x9
 #endif
@@ -42,6 +46,11 @@
 #if defined(__CUDACC__) && defined(CUBLAS_VER_MAJOR) && defined(CUBLAS_VER_MINOR)
     #if (CUBLAS_VER_MAJOR * 100 + CUBLAS_VER_MINOR) >= 1301
         #define avail_Ozaki1 1
+        #if (CUBLAS_VER_MAJOR * 100 + CUBLAS_VER_MINOR) >= 1303
+            #define Ozaki1_8GB 1
+        #else
+            #define Ozaki1_8GB 0
+        #endif
     #else
         #define avail_Ozaki1 0
     #endif
@@ -82,7 +91,7 @@ inline constexpr unsigned long long seedB = 54321;
 
 inline std::vector<int> oz1_slice_list = {7, 11};
 
-inline std::vector<size_t> N_list   = {1024, 2048, 4096, 8192, 16384, 32768};
+inline std::vector<size_t> N_list   = {1024, 2048, 4096, 8192, 16384, 32768, 65536};
 inline std::vector<double> phi_list = {-1.0, 0.0, 0.5, 1.0, 2.0, 4.0};
 
 template <gemmul8::Backend backend> inline constexpr char backendType = 'f';
@@ -416,6 +425,10 @@ inline std::string diagTag(cublasDiagType_t diag) {
     if (diag == CUBLAS_DIAG_NON_UNIT) return "nonunit_";
     if (diag == CUBLAS_DIAG_UNIT) return "unit_";
     return "unknown_";
+}
+
+inline std::string memTag(size_t memory_limit) {
+    return (memory_limit > 0) ? (std::to_string(memory_limit) + std::string("bytes_")) : std::string("");
 }
 
 template <typename T>

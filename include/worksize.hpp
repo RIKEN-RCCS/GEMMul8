@@ -35,14 +35,17 @@
  *
  *     gemmul8::workSize<is_Complex, gemmul8::Backend::INT8, FUNC>(...);
  *     gemmul8::workSize<gemmul8::Backend::INT8, is_Complex, FUNC>(...);
- *     gemmul8::workSizeTrsm<T, gemmul8::Backend::INT8>(...);
- *     gemmul8::workSizeTrsm<gemmul8::Backend::INT8, T>(...);
+ *     gemmul8::workSizeTrsm<T, gemmul8::Backend::INT8>(handle, ...);
+ *     gemmul8::workSizeTrsm<gemmul8::Backend::INT8, T>(handle, ...);
+ *     gemmul8::workSizeTrsmLt<T, gemmul8::Backend::INT8>(ltHandle, ...);
+ *     gemmul8::workSizeTrsmLt<gemmul8::Backend::INT8, T>(ltHandle, ...);
  *
  *   If is_Complex and FUNC use their defaults, the alternative order can be
  *   shortened to:
  *
  *     gemmul8::workSize<gemmul8::Backend::INT8>(...);
- *     gemmul8::workSizeTrsm<gemmul8::Backend::INT8>(...);
+ *     gemmul8::workSizeTrsm<gemmul8::Backend::INT8>(handle, ...);
+ *     gemmul8::workSizeTrsmLt<gemmul8::Backend::INT8>(ltHandle, ...);
  *
  * Arguments:
  *
@@ -77,6 +80,10 @@
  *     with B is written to *workSizeB.  This value corresponds to t[2] in the
  *     return value of each routine when called with work == nullptr.
  *
+ *   fastmode:
+ *     If true, use the fast scaling path.
+ *     If false, use the more accurate scaling path.
+ *
  *   Examples:
  *
  *     Func::gemm:
@@ -107,8 +114,9 @@
  *       Use workSize(n, n, n, ...).
  *
  *     Func::trsm:
- *       Use workSizeTrsm(side, m, n, ...).
- *       The required workspace depends on side and uplo.
+ *       Use workSizeTrsm(handle, side, m, n, ...) for a BLAS handle, or
+ *       workSizeTrsmLt(handle, side, m, n, ...) for an Lt handle.
+ *       The required workspace depends on side and the handle-local TRSM block size.
  *
  * Return value:
  *
@@ -127,6 +135,7 @@
  */
 #pragma once
 #include "types.hpp"
+#include "config.hpp"
 
 namespace gemmul8 {
 
@@ -135,10 +144,11 @@ template <bool is_Complex = false, Backend BACKEND = Backend::INT8, Func FUNC = 
 size_t workSize(
     size_t m, size_t n, size_t k,
     int num_moduli,
-    bool enable_skip_scalA = false,   // [optional] Reserve extra space for A to allow skip_scalA
-    bool enable_skip_scalB = false,   // [optional] Reserve extra space for B to allow skip_scalB
+    bool enable_skip_scalA = false,   // [optional] Input: Reserve extra space for A to allow skip_scalA
+    bool enable_skip_scalB = false,   // [optional] Input: Reserve extra space for B to allow skip_scalB
     size_t *workSizeA      = nullptr, // [optional] Output: workspace size used for A8i and sftA
-    size_t *workSizeB      = nullptr  // [optional] Output: workspace size used for B8i and sftB
+    size_t *workSizeB      = nullptr, // [optional] Output: workspace size used for B8i and sftB
+    bool fastmode          = false    // [optioanl] Input: Additional workspace is required for accurate mode (fastmode=false) when enable_skip_scal* = true except syrk & herk
 );
 
 // Alternative template-argument order:
@@ -149,13 +159,14 @@ inline size_t workSize(
     bool enable_skip_scalA = false,
     bool enable_skip_scalB = false,
     size_t *workSizeA      = nullptr,
-    size_t *workSizeB      = nullptr //
+    size_t *workSizeB      = nullptr,
+    bool fastmode          = false //
 ) {
     return workSize<is_Complex, BACKEND, FUNC>(
         m, n, k,
         num_moduli,
         enable_skip_scalA, enable_skip_scalB,
-        workSizeA, workSizeB);
+        workSizeA, workSizeB, fastmode);
 }
 
 // for trsm
@@ -166,6 +177,14 @@ inline size_t workSize(
 
 template <typename T = double, Backend BACKEND = Backend::INT8>
 size_t workSizeTrsm(
+    cublasHandle_t handle,
+    cublasSideMode_t side,
+    size_t m, size_t n,
+    int num_moduli);
+
+template <typename T = double, Backend BACKEND = Backend::INT8>
+size_t workSizeTrsmLt(
+    cublasLtHandle_t handle,
     cublasSideMode_t side,
     size_t m, size_t n,
     int num_moduli);
@@ -173,12 +192,22 @@ size_t workSizeTrsm(
 // Alternative template-argument order:
 template <Backend BACKEND = Backend::INT8, typename T = double>
 inline size_t workSizeTrsm(
+    cublasHandle_t handle,
     cublasSideMode_t side,
     size_t m, size_t n,
     int num_moduli //
 ) {
-    return workSizeTrsm<T, BACKEND>(
-        side, m, n, num_moduli);
+    return workSizeTrsm<T, BACKEND>(handle, side, m, n, num_moduli);
+}
+
+template <Backend BACKEND = Backend::INT8, typename T = double>
+inline size_t workSizeTrsmLt(
+    cublasLtHandle_t handle,
+    cublasSideMode_t side,
+    size_t m, size_t n,
+    int num_moduli //
+) {
+    return workSizeTrsmLt<T, BACKEND>(handle, side, m, n, num_moduli);
 }
 
 #endif
@@ -190,6 +219,14 @@ inline size_t workSizeTrsm(
 
 template <typename T = double, Backend BACKEND = Backend::INT8>
 size_t workSizeTrsm(
+    hipblasHandle_t handle,
+    hipblasSideMode_t side,
+    size_t m, size_t n,
+    int num_moduli);
+
+template <typename T = double, Backend BACKEND = Backend::INT8>
+size_t workSizeTrsmLt(
+    hipblasLtHandle_t handle,
     hipblasSideMode_t side,
     size_t m, size_t n,
     int num_moduli);
@@ -197,12 +234,22 @@ size_t workSizeTrsm(
 // Alternative template-argument order:
 template <Backend BACKEND = Backend::INT8, typename T = double>
 inline size_t workSizeTrsm(
+    hipblasHandle_t handle,
     hipblasSideMode_t side,
     size_t m, size_t n,
     int num_moduli //
 ) {
-    return workSizeTrsm<T, BACKEND>(
-        side, m, n, num_moduli);
+    return workSizeTrsm<T, BACKEND>(handle, side, m, n, num_moduli);
+}
+
+template <Backend BACKEND = Backend::INT8, typename T = double>
+inline size_t workSizeTrsmLt(
+    hipblasLtHandle_t handle,
+    hipblasSideMode_t side,
+    size_t m, size_t n,
+    int num_moduli //
+) {
+    return workSizeTrsmLt<T, BACKEND>(handle, side, m, n, num_moduli);
 }
 
 #endif

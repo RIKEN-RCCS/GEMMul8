@@ -88,38 +88,9 @@
  */
 #pragma once
 #include "types.hpp"
+#include "config.hpp"
 
 namespace gemmul8 {
-
-/**
- * Override the internal block size used by GEMMul8 TRSM.
- *
- * GEMMul8 TRSM uses a blocked algorithm internally.  By default, the block
- * size is selected automatically from the detected GPU architecture and
- * backend.  This function overrides that selection for subsequent trsm() and
- * trsmLt() calls.
- *
- * If nB > 0, the specified value is used as the TRSM block size.
- * If nB <= 0, the automatic architecture/backend-dependent block size is used.
- *
- * This setting also affects the workspace size returned by workSizeTrsm().
- * Therefore, when overriding the block size, call set_block_size_trsm(nB)
- * before calling workSizeTrsm() and before allocating the workspace.
- *
- * This setting is process-global and intended mainly for benchmarking and
- * tuning.  It should not be changed concurrently with running TRSM calls from
- * other host threads.
- */
-void set_block_size_trsm(int nB) noexcept;
-
-/**
- * Return the current TRSM block-size override.
- *
- * A positive value means that the returned value is used as the TRSM block
- * size for subsequent trsm() and trsmLt() calls.  A non-positive value means
- * that the automatic architecture/backend-dependent block size is used.
- */
-int get_block_size_trsm() noexcept;
 
 //------------------------------
 // CUDA

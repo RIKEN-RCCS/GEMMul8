@@ -1,6 +1,6 @@
 #pragma once
 #include "common.hpp"
-#include "../mod/mod_f32.hpp"
+#include "../mod/mod_reduce_matprod_declaration.hpp"
 
 namespace gemmul8::common {
 
@@ -48,7 +48,7 @@ inline void call_gemm_tn(
     const void *beta,
     void *C, size_t ldc //
 ) {
-    if constexpr (BACKEND != Backend::FP8) {
+    if (!h.matprod_k_blocking || k <= h.matprod_k_block_first) {
         call_gemm_tn_raw<BACKEND>(
             stream, h,
             m, n, k,
@@ -58,33 +58,23 @@ inline void call_gemm_tn(
         return;
     }
 
-    if (!h.fp8_k_blocking || k <= h.fp8_k_block_first) {
-        call_gemm_tn_raw<BACKEND>(
-            stream, h,
-            m, n, k,
-            alpha, A, lda,
-            B, ldb,
-            beta, C, ldc);
-        return;
-    }
+    using LowT = low_t<BACKEND>;
+    using HiT  = hi_t<BACKEND>;
 
-    using LowT = low_t<Backend::FP8>;
-    using HiT  = hi_t<Backend::FP8>;
-
-    constexpr HiT one = 1.0f;
+    constexpr HiT one = HiT(1);
 
     const LowT *A0 = reinterpret_cast<const LowT *>(A);
     const LowT *B0 = reinterpret_cast<const LowT *>(B);
     HiT *C0        = reinterpret_cast<HiT *>(C);
 
-    const int KB0 = h.fp8_k_block_first;
-    const int KB  = h.fp8_k_block_next;
+    const int KB0 = h.matprod_k_block_first;
+    const int KB  = h.matprod_k_block_next;
 
     int k0 = 0;
     {
         const int kk = std::min(KB0, k);
 
-        call_gemm_tn_raw<Backend::FP8>(
+        call_gemm_tn_raw<BACKEND>(
             stream, h,
             m, n, kk,
             alpha,
@@ -97,11 +87,11 @@ inline void call_gemm_tn(
     }
 
     while (k0 < k) {
-        mod_f32(stream, C0, m, n, ldc, h);
+        mod::mod_reduce_matprod<BACKEND>(stream, C0, m, n, ldc, h.modulus_idx);
 
         const int kk = std::min(KB, k - k0);
 
-        call_gemm_tn_raw<Backend::FP8>(
+        call_gemm_tn_raw<BACKEND>(
             stream, h,
             m, n, kk,
             alpha,
@@ -158,7 +148,7 @@ inline void call_gemm_tn_strided_batched(
     const void *beta,
     void *C, size_t ldc, int64_t strideC //
 ) {
-    if constexpr (BACKEND != Backend::FP8) {
+    if (!h.matprod_k_blocking || k <= h.matprod_k_block_first) {
         call_gemm_tn_strided_batched_raw<BACKEND>(
             stream, h,
             m, n, k, batchCount,
@@ -170,35 +160,23 @@ inline void call_gemm_tn_strided_batched(
         return;
     }
 
-    if (!h.fp8_k_blocking || k <= h.fp8_k_block_first) {
-        call_gemm_tn_strided_batched_raw<BACKEND>(
-            stream, h,
-            m, n, k, batchCount,
-            alpha,
-            A, lda, strideA,
-            B, ldb, strideB,
-            beta,
-            C, ldc, strideC);
-        return;
-    }
+    using LowT = low_t<BACKEND>;
+    using HiT  = hi_t<BACKEND>;
 
-    using LowT = low_t<Backend::FP8>;
-    using HiT  = hi_t<Backend::FP8>;
-
-    constexpr HiT one = 1.0f;
+    constexpr HiT one = HiT(1);
 
     const LowT *A0 = reinterpret_cast<const LowT *>(A);
     const LowT *B0 = reinterpret_cast<const LowT *>(B);
     HiT *C0        = reinterpret_cast<HiT *>(C);
 
-    const int KB0 = h.fp8_k_block_first;
-    const int KB  = h.fp8_k_block_next;
+    const int KB0 = h.matprod_k_block_first;
+    const int KB  = h.matprod_k_block_next;
 
     int k0 = 0;
     {
         const int kk = std::min(KB0, k);
 
-        call_gemm_tn_strided_batched_raw<Backend::FP8>(
+        call_gemm_tn_strided_batched_raw<BACKEND>(
             stream, h,
             m, n, kk, batchCount,
             alpha,
@@ -211,11 +189,11 @@ inline void call_gemm_tn_strided_batched(
     }
 
     while (k0 < k) {
-        mod_f32_strided(stream, C0, m, n, ldc, strideC, batchCount, h);
+        mod::mod_reduce_matprod_strided<BACKEND>(stream, C0, m, n, ldc, strideC, batchCount, h.modulus_idx);
 
         const int kk = std::min(KB, k - k0);
 
-        call_gemm_tn_strided_batched_raw<Backend::FP8>(
+        call_gemm_tn_strided_batched_raw<BACKEND>(
             stream, h,
             m, n, kk, batchCount,
             alpha,
@@ -280,7 +258,7 @@ inline void call_gemm_tn_pointer_batched(
     const void *beta,
     void **Carray, size_t ldc //
 ) {
-    if constexpr (BACKEND != Backend::FP8) {
+    if (!h.matprod_k_blocking || k <= h.matprod_k_block_first) {
         call_gemm_tn_pointer_batched_raw<BACKEND>(
             stream, h,
             m, n, k, batchCount,
@@ -292,29 +270,17 @@ inline void call_gemm_tn_pointer_batched(
         return;
     }
 
-    if (!h.fp8_k_blocking || k <= h.fp8_k_block_first) {
-        call_gemm_tn_pointer_batched_raw<BACKEND>(
-            stream, h,
-            m, n, k, batchCount,
-            alpha,
-            Aarray, lda,
-            Barray, ldb,
-            beta,
-            Carray, ldc);
-        return;
-    }
+    using HiT = hi_t<BACKEND>;
 
-    using HiT = hi_t<Backend::FP8>;
+    constexpr HiT one = HiT(1);
 
-    constexpr HiT one = 1.0f;
-
-    const int KB0 = h.fp8_k_block_first;
-    const int KB  = h.fp8_k_block_next;
+    const int KB0 = h.matprod_k_block_first;
+    const int KB  = h.matprod_k_block_next;
 
     int k0 = 0;
     int kk = std::min(KB0, k);
     {
-        call_gemm_tn_pointer_batched_raw<Backend::FP8>(
+        call_gemm_tn_pointer_batched_raw<BACKEND>(
             stream, h,
             m, n, kk, batchCount,
             alpha,
@@ -327,11 +293,13 @@ inline void call_gemm_tn_pointer_batched(
     }
 
     while (k0 < k) {
-        mod_f32_pointer_and_advance(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, kk, h);
+        mod::mod_reduce_matprod_pointer_and_advance<BACKEND>(
+            stream, Aarray, Barray, Carray, m, n, ldc,
+            batchCount, kk, h.modulus_idx);
 
         kk = std::min(KB, k - k0);
 
-        call_gemm_tn_pointer_batched_raw<Backend::FP8>(
+        call_gemm_tn_pointer_batched_raw<BACKEND>(
             stream, h,
             m, n, kk, batchCount,
             alpha,

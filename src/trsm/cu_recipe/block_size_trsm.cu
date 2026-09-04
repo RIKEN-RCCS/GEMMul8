@@ -1,23 +1,21 @@
-#include "../../../include/trsm.hpp"
-#include <atomic>
+#include "../../config/config.hpp"
 
 namespace gemmul8 {
 
-namespace {
-
-std::atomic<int> &trsm_block_size_override_storage() noexcept {
-    static std::atomic<int> nB = 0;
-    return nB;
+void set_block_size_trsm(cublasHandle_t handle, int nB) noexcept {
+    config::set_block_size_trsm_impl(handle, nB);
 }
 
-} // namespace
-
-void set_block_size_trsm(const int nB) noexcept {
-    trsm_block_size_override_storage().store(nB, std::memory_order_relaxed);
+void set_block_size_trsmLt(cublasLtHandle_t handle, int nB) noexcept {
+    config::set_block_size_trsmLt_impl(handle, nB);
 }
 
-int get_block_size_trsm() noexcept {
-    return trsm_block_size_override_storage().load(std::memory_order_relaxed);
+int get_block_size_trsm(cublasHandle_t handle) noexcept {
+    return config::get_config(handle).block_size_trsm;
+}
+
+int get_block_size_trsmLt(cublasLtHandle_t handle) noexcept {
+    return config::get_configLt(handle).block_size_trsm;
 }
 
 } // namespace gemmul8

@@ -102,6 +102,11 @@
  *       t[1]: workspace size associated with A (size of workA)
  *       t[2]: zero or unused
  *
+ * Note:
+ * 
+ *   When BACKEND = Backend::INT8 and fastmode = false, currently supports 
+ *   the inner dimension of the underlying matrix multiplication of at most 2^17.
+ *
  * Lt variant:
  *
  *   herkLt() uses a cublasLtHandle_t / hipblasLtHandle_t and appends a stream

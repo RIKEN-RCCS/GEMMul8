@@ -12,6 +12,7 @@
 #include "../oz2/trmm/worksize.hpp"
 #include "../oz2/trtrmm/worksize.hpp"
 #include "../oz2/trsm/worksize.hpp"
+#include "../config/config.hpp"
 
 namespace gemmul8 {
 
@@ -20,16 +21,19 @@ namespace gemmul8 {
         return 0;                    \
     }
 
-#define WORKSIZE_OZ2(F)                                                                                                                \
-    if constexpr (FUNC == Func::F) {                                                                                                   \
-        return oz2::F::workSize<is_Complex, BACKEND>(m, n, k, NUM_MODULI, enable_skip_scalA, enable_skip_scalB, workSizeA, workSizeB); \
+#define WORKSIZE_OZ2(F)                               \
+    if constexpr (FUNC == Func::F) {                  \
+        return oz2::F::workSize<is_Complex, BACKEND>( \
+            m, n, k, NUM_MODULI,                      \
+            enable_skip_scalA, enable_skip_scalB,     \
+            workSizeA, workSizeB, fastmode);          \
     }
 
 template <bool is_Complex, Backend BACKEND, Func FUNC>
 size_t workSize(
     size_t m, size_t n, size_t k, int NUM_MODULI,
     bool enable_skip_scalA, bool enable_skip_scalB,
-    size_t *workSizeA, size_t *workSizeB //
+    size_t *workSizeA, size_t *workSizeB, bool fastmode //
 ) {
     if (NUM_MODULI > 0) {
         WORKSIZE_OZ2(gemm)
@@ -61,20 +65,43 @@ size_t workSize(
 }
 
 template <typename T, Backend BACKEND>
+inline size_t workSizeTrsm_impl(
+    cublasSideMode_t side,
+    size_t m, size_t n,
+    int NUM_MODULI,
+    int nB_override //
+) {
+    if (side == CUBLAS_SIDE_LEFT) {
+        return oz2::trsm::workSize_left<T, BACKEND>(m, n, NUM_MODULI, nB_override);
+    }
+    if (side == CUBLAS_SIDE_RIGHT) {
+        return oz2::trsm::workSize_right<T, BACKEND>(m, n, NUM_MODULI, nB_override);
+    }
+    return 0;
+}
+
+template <typename T, Backend BACKEND>
 size_t workSizeTrsm(
+    cublasHandle_t handle,
     cublasSideMode_t side,
     size_t m, size_t n,
     int NUM_MODULI //
 ) {
-    if (side == CUBLAS_SIDE_LEFT) {
-        return oz2::trsm::workSize_left<T, BACKEND>(m, n, NUM_MODULI);
-    }
+    return workSizeTrsm_impl<T, BACKEND>(
+        side, m, n, NUM_MODULI,
+        config::get_config(handle).block_size_trsm);
+}
 
-    if (side == CUBLAS_SIDE_RIGHT) {
-        return oz2::trsm::workSize_right<T, BACKEND>(m, n, NUM_MODULI);
-    }
-
-    return 0;
+template <typename T, Backend BACKEND>
+size_t workSizeTrsmLt(
+    cublasLtHandle_t handle,
+    cublasSideMode_t side,
+    size_t m, size_t n,
+    int NUM_MODULI //
+) {
+    return workSizeTrsm_impl<T, BACKEND>(
+        side, m, n, NUM_MODULI,
+        config::get_configLt(handle).block_size_trsm);
 }
 
 #undef WORKSIZE_OZ2

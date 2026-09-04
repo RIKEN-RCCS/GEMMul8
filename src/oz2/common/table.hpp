@@ -52,6 +52,29 @@ template <> inline constexpr int32_t moduli<Backend::FP8, 17U> = 863;  // Karats
 template <> inline constexpr int32_t moduli<Backend::FP8, 18U> = 859;  // Karatsuba
 template <> inline constexpr int32_t moduli<Backend::FP8, 19U> = 841;  // base-29
 
+inline constexpr int32_t moduli_int8[20] = {
+    moduli<Backend::INT8, 0U>,
+    moduli<Backend::INT8, 1U>,
+    moduli<Backend::INT8, 2U>,
+    moduli<Backend::INT8, 3U>,
+    moduli<Backend::INT8, 4U>,
+    moduli<Backend::INT8, 5U>,
+    moduli<Backend::INT8, 6U>,
+    moduli<Backend::INT8, 7U>,
+    moduli<Backend::INT8, 8U>,
+    moduli<Backend::INT8, 9U>,
+    moduli<Backend::INT8, 10U>,
+    moduli<Backend::INT8, 11U>,
+    moduli<Backend::INT8, 12U>,
+    moduli<Backend::INT8, 13U>,
+    moduli<Backend::INT8, 14U>,
+    moduli<Backend::INT8, 15U>,
+    moduli<Backend::INT8, 16U>,
+    moduli<Backend::INT8, 17U>,
+    moduli<Backend::INT8, 18U>,
+    moduli<Backend::INT8, 19U>,
+};
+
 inline constexpr int32_t moduli_fp8[20] = {
     moduli<Backend::FP8, 0U>,
     moduli<Backend::FP8, 1U>,

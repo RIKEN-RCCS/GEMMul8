@@ -19,7 +19,9 @@
  *   | GEMMUL8_FASTMODE_D_<OP>                  | 1       | Fast mode switch for FP64 real routines. 1 = fast mode; 0 = accurate mode.          |
  *   | GEMMUL8_FASTMODE_C_<OP>                  | 1       | Fast mode switch for FP32 complex routines. 1 = fast mode; 0 = accurate mode.       |
  *   | GEMMUL8_FASTMODE_Z_<OP>                  | 1       | Fast mode switch for FP64 complex routines. 1 = fast mode; 0 = accurate mode.       |
- *   | GEMMUL8_BLK_SIZE_TRSM                    | 0       | TRSM block-size override. >0 = use the specified size; <=0 = automatic selection.   |
+ *   | GEMMUL8_MEMORY_SAVING                    | unset   | Memory-saving override. 1 = enable; 0 = disable.                                    |
+ *   | GEMMUL8_MAX_WORKSIZE                     | unset   | Workspace-size limit in bytes used when memory saving is enabled.                   |
+ *   | GEMMUL8_BLK_SIZE_TRSM                    | unset   | TRSM block-size override. >0 = use the specified size; <=0 = automatic selection.   |
  *   | GEMMUL8_SKIP_SCALE_A                     | 0       | Enables reuse of preprocessed/scaled A when the operand cache key matches.          |
  *   | GEMMUL8_SKIP_SCALE_B                     | 0       | Enables reuse of preprocessed/scaled B when the operand cache key matches.          |
  *
@@ -123,6 +125,10 @@
  *   export GEMMUL8_MAX_N_TRSM_LEFT=32768
  *   export GEMMUL8_MAX_NUM_MOD_TRSM_LEFT=10
  *
+ *   # Global memory-saving settings
+ *   export GEMMUL8_MEMORY_SAVING=1
+ *   export GEMMUL8_MAX_WORKSIZE=4294967296   # 4 GiB, in bytes
+ *
  *   # Global skip-scaling switches
  *   export GEMMUL8_SKIP_SCALE_A=1
  *   export GEMMUL8_SKIP_SCALE_B=1
@@ -132,16 +138,36 @@
  *   - GEMMUL8_SKIP_SCALE_A and GEMMUL8_SKIP_SCALE_B are global switches.
  *     They are not operation-specific because the skip-scaling cache is
  *     keyed by operand metadata rather than by routine family.
+ *
  *   - Skip scaling relies on pointer identity and operand metadata;
  *     matrix contents are not checked.
+ *
  *   - Enable GEMMUL8_SKIP_SCALE_A/B only when the corresponding input data are
  *     unchanged between calls.
+ *
+ *   - GEMMUL8_MEMORY_SAVING and GEMMUL8_MAX_WORKSIZE override the corresponding
+ *     handle-local settings only when the environment variables are explicitly defined.
+ *
+ *   - Handle-local memory saving disables skip-scaling/reuse even when
+ *     GEMMUL8_SKIP_SCALE_A/B is enabled.
+ *
+ *   - GEMMUL8_BLK_SIZE_TRSM overrides the handle-local TRSM block size only
+ *     when the environment variable is explicitly defined.
+ *
+ *   - GEMMUL8_MEMORY_SAVING, GEMMUL8_MAX_WORKSIZE, and GEMMUL8_BLK_SIZE_TRSM are read
+ *     on every intercepted GEMMul8 call (GEMMUL8_BLK_SIZE_TRSM on every intercepted TRSM call).
+ *     Changing their values during execution therefore takes effect from the next matching call.
+ *     The value is copied to the handle-local setting; unsetting the environment variable
+ *     does not restore an earlier value. Use 0 or the public setter to reset the setting.
+ *
  *   - If an operand workspace is reallocated, the corresponding cache entry is
  *     invalidated automatically.
  */
 #pragma once
 #include "../include/gemmul8.hpp"
+#include "../src/config/config.hpp"
 #include "../src/oz2/common/include.hpp"
+#include "../src/oz2/trsm/worksize.hpp"
 
 #include <algorithm>
 #include <array>
@@ -340,6 +366,8 @@ struct ScaledOperandEntry {
 struct HandleState {
     std::mutex mtx;
 
+    cublasHandle_t parent = nullptr;
+
     void *workA       = nullptr;
     size_t workA_size = 0;
 
@@ -420,7 +448,10 @@ inline void clear_scaled_operands_locked(HandleState &st) {
 static inline std::shared_ptr<HandleState> get_state(cublasHandle_t h) {
     std::lock_guard<std::mutex> g(g_state_map_mtx);
     auto &p = g_state_map[h];
-    if (!p) p = std::make_shared<HandleState>();
+    if (!p) {
+        p         = std::make_shared<HandleState>();
+        p->parent = h;
+    }
     return p;
 }
 
@@ -461,6 +492,13 @@ static inline cublasStatus_t ensure_stream_ordered_locked(HandleState &st, cudaS
 // ---- Small helpers ----
 static inline bool env_is_one(const char *s, bool def) {
     return s ? (std::strcmp(s, "1") == 0) : def;
+}
+
+static inline bool env_bool01(const char *s, bool def) {
+    if (!s) return def;
+    if (std::strcmp(s, "1") == 0) return true;
+    if (std::strcmp(s, "0") == 0) return false;
+    return def;
 }
 
 static inline int env_i32(const char *s, int def) {
@@ -601,9 +639,100 @@ static inline Backend requested_backend(const HookOp op) {
     return env_backend(getenv_op("GEMMUL8_BACKEND", op), initial_vals::BACKEND);
 }
 
+static inline bool has_requested_block_size_trsm() {
+    return std::getenv("GEMMUL8_BLK_SIZE_TRSM") != nullptr;
+}
+
 static inline int requested_block_size_trsm() {
     const int nB = env_i32(std::getenv("GEMMUL8_BLK_SIZE_TRSM"), initial_vals::BLK_SIZE_TRSM);
     return (nB > 0) ? nB : 0;
+}
+
+// Apply the TRSM environment override to the handle
+static inline void apply_block_size_trsm_environment(cublasHandle_t handle) {
+    if (!has_requested_block_size_trsm()) return;
+    gemmul8::set_block_size_trsm(handle, requested_block_size_trsm());
+}
+
+// Apply workspace-related environment overrides to the handle
+static inline gemmul8::config::ConfigSnapshot apply_workspace_environment(cublasHandle_t handle) {
+    auto config = gemmul8::config::get_config(handle);
+
+    if (const char *s = std::getenv("GEMMUL8_MEMORY_SAVING")) {
+        const bool value = env_bool01(s, config.memory_saving);
+        if (value != config.memory_saving) {
+            gemmul8::set_memory_saving(handle, value);
+            config.memory_saving = value;
+        }
+    }
+
+    if (const char *s = std::getenv("GEMMUL8_MAX_WORKSIZE")) {
+        const size_t value = env_u64(s, config.max_worksize);
+        if (value != config.max_worksize) {
+            gemmul8::set_max_worksize(handle, value);
+            config.max_worksize = value;
+        }
+    }
+
+    return config;
+}
+
+struct WorkspaceConfig {
+    bool memory_saving_mode = false;
+    bool memory_saving      = false;
+    size_t limit            = 0;
+    bool enable_skipA       = false;
+    bool enable_skipB       = false;
+};
+
+static inline WorkspaceConfig workspace_config(
+    cublasHandle_t handle,
+    bool requested_skipA,
+    bool requested_skipB //
+) {
+    const auto config = apply_workspace_environment(handle);
+
+    WorkspaceConfig out;
+    out.memory_saving_mode = config.memory_saving;
+    out.memory_saving      = config.memory_saving && config.max_worksize > 0;
+    out.limit              = config.max_worksize;
+    out.enable_skipA       = config.memory_saving ? false : requested_skipA;
+    out.enable_skipB       = config.memory_saving ? false : requested_skipB;
+    return out;
+}
+
+struct WorkspaceRequest {
+    size_t workA = 0;
+    size_t workB = 0;
+    size_t workC = 0;
+};
+
+static inline WorkspaceRequest workspace_request(
+    const WorkspaceConfig &config,
+    size_t total,
+    size_t workA,
+    size_t workB //
+) {
+    WorkspaceRequest out;
+
+    if (config.memory_saving && total > config.limit) {
+        out.workC = config.limit;
+        return out;
+    }
+
+    out.workA = workA;
+    out.workB = workB;
+    out.workC = (total >= workA + workB) ? (total - workA - workB) : 0;
+
+    if (!config.memory_saving_mode) {
+        if (config.enable_skipA) out.workA = std::max(out.workA, max_workSizeA);
+        if (config.enable_skipB) out.workB = std::max(out.workB, max_workSizeB);
+        if (config.enable_skipA || config.enable_skipB) {
+            out.workC = std::max(out.workC, max_workSizeC);
+        }
+    }
+
+    return out;
 }
 
 template <bool COMPLEX, Backend BACKEND, Func FUNC>
@@ -630,7 +759,13 @@ static inline void update_maxws_trsm(
     cublasSideMode_t side, size_t m, size_t n, int num_moduli,
     size_t &maxC //
 ) {
-    const size_t w = workSizeTrsm<T, BACKEND>(side, m, n, num_moduli);
+    const int nB_override = requested_block_size_trsm();
+
+    const size_t w = (side == CUBLAS_SIDE_LEFT)
+                         ? gemmul8::oz2::trsm::workSize_left<T, BACKEND>(
+                               m, n, static_cast<unsigned>(num_moduli), nB_override)
+                         : gemmul8::oz2::trsm::workSize_right<T, BACKEND>(
+                               m, n, static_cast<unsigned>(num_moduli), nB_override);
 
     maxC = std::max(maxC, w);
 }
@@ -965,7 +1100,77 @@ static cublasStatus_t ensure_lt_handle_locked(HandleState &st, cublasLtHandle_t 
         return s;
     }
     st.lt = lt;
-    *out  = lt;
+    gemmul8::config::bind_config(st.parent, lt);
+    *out = lt;
+    return CUBLAS_STATUS_SUCCESS;
+}
+
+static inline cublasStatus_t release_work_locked(
+    HandleState &st,
+    void *&buf,
+    size_t &buf_size,
+    const char *tag,
+    cudaStream_t stream //
+) {
+    if (!buf) {
+        buf_size = 0;
+        return CUBLAS_STATUS_SUCCESS;
+    }
+
+    void *old                  = buf;
+    const cudaError_t free_err = cudaFreeAsync(old, stream);
+    if (free_err != cudaSuccess) {
+        std::cerr << "[GEMMUL8 HOOK] cudaFreeAsync failed for "
+                  << (tag ? tag : "workspace")
+                  << " (" << cudaGetErrorString(free_err) << ")\n";
+        return CUBLAS_STATUS_INTERNAL_ERROR;
+    }
+
+    invalidate_scaled_operand_work_locked(st, old);
+    buf      = nullptr;
+    buf_size = 0;
+
+    const cudaError_t sync_err = cudaStreamSynchronize(stream);
+    if (sync_err != cudaSuccess) {
+        std::cerr << "[GEMMUL8 HOOK] cudaStreamSynchronize failed after freeing "
+                  << (tag ? tag : "workspace")
+                  << " (" << cudaGetErrorString(sync_err) << ")\n";
+        return CUBLAS_STATUS_INTERNAL_ERROR;
+    }
+
+    return CUBLAS_STATUS_SUCCESS;
+}
+
+static inline cublasStatus_t prepare_memory_saving_workspaces_locked(
+    HandleState &st,
+    const WorkspaceRequest &req,
+    size_t limit,
+    cudaStream_t stream //
+) {
+    if (limit == 0) return CUBLAS_STATUS_SUCCESS;
+
+    const size_t projected =
+        std::max(st.workA_size, req.workA) +
+        std::max(st.workB_size, req.workB) +
+        std::max(st.workC_size, req.workC);
+
+    if (projected <= limit) return CUBLAS_STATUS_SUCCESS;
+
+    cublasStatus_t st_release = CUBLAS_STATUS_SUCCESS;
+
+    if (st.workA_size > req.workA) {
+        st_release = release_work_locked(st, st.workA, st.workA_size, "workA", stream);
+        if (st_release != CUBLAS_STATUS_SUCCESS) return st_release;
+    }
+    if (st.workB_size > req.workB) {
+        st_release = release_work_locked(st, st.workB, st.workB_size, "workB", stream);
+        if (st_release != CUBLAS_STATUS_SUCCESS) return st_release;
+    }
+    if (st.workC_size > req.workC) {
+        st_release = release_work_locked(st, st.workC, st.workC_size, "workC", stream);
+        if (st_release != CUBLAS_STATUS_SUCCESS) return st_release;
+    }
+
     return CUBLAS_STATUS_SUCCESS;
 }
 
@@ -994,22 +1199,11 @@ static inline cublasStatus_t get_work_locked(
     }
 
     if (buf) {
-        void *old = buf;
-
-        cudaError_t free_err = cudaFreeAsync(old, stream);
-        if (free_err != cudaSuccess) {
+        const cublasStatus_t st_release = release_work_locked(st, buf, buf_size, tag, stream);
+        if (st_release != CUBLAS_STATUS_SUCCESS) {
             *out = nullptr;
-            std::cerr << "[GEMMUL8 HOOK] cudaFreeAsync failed for "
-                      << (tag ? tag : "workspace")
-                      << " (" << cudaGetErrorString(free_err) << ")\n";
-            return CUBLAS_STATUS_INTERNAL_ERROR;
+            return st_release;
         }
-
-        invalidate_scaled_operand_work_locked(st, old);
-
-        cudaStreamSynchronize(stream);
-        buf      = nullptr;
-        buf_size = 0;
     }
 
     void *newp      = nullptr;
@@ -1098,6 +1292,7 @@ static inline void cleanup_work(cublasHandle_t handle) {
         free_one(sp->workC, sp->workC_size, "workC");
 
         if (sp->lt) {
+            gemmul8::config::unbind_configLt(sp->lt);
             (void)cublasLtDestroy(sp->lt);
             sp->lt = nullptr;
         }

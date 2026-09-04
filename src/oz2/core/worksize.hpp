@@ -11,7 +11,7 @@ template <bool is_Complex, Backend BACKEND,
 inline size_t workSize(
     size_t m, size_t n, size_t k, unsigned NUM_MODULI,
     bool enable_skip_scalA, bool enable_skip_scalB,
-    size_t *workSizeA, size_t *workSizeB //
+    size_t *workSizeA, size_t *workSizeB, bool fastmode //
 ) {
     using LowT = common::low_t<BACKEND>;
     using MidT = common::mid_t<BACKEND, is_Complex>;
@@ -30,8 +30,8 @@ inline size_t workSize(
     const unsigned num_mat      = common::table::num_mat<BACKEND>(NUM_MODULI);
     constexpr size_t lwork_blas = size_t(32) << 20; // 32 MiB
 
-    unsigned num_A_lo  = num_mat + ((enable_skip_scalA) ? 1 : 0); // +1 for skip_scalA in accurate mode
-    unsigned num_B_lo  = num_mat + ((enable_skip_scalB) ? 1 : 0); // +1 for skip_scalB in accurate mode
+    unsigned num_A_lo  = num_mat + ((enable_skip_scalA && !fastmode) ? 1 : 0); // +1 for skip_scalA in accurate mode
+    unsigned num_B_lo  = num_mat + ((enable_skip_scalB && !fastmode) ? 1 : 0); // +1 for skip_scalB in accurate mode
     unsigned num_C_mid = NUM_MODULI;
     unsigned num_C_hi  = (BACKEND == Backend::INT8) ? 1 : 3;
 
@@ -54,10 +54,10 @@ inline size_t workSize(
     size_t total_size_C = common::PAD_SIZE - 1;
 
     total_size_A += sizeof(LowT) * sizeA * num_A_lo;
-    total_size_A += sizeof(int16_t) * size_vecA * (enable_skip_scalA ? 2u : 1u);
+    total_size_A += sizeof(int16_t) * size_vecA * ((enable_skip_scalA && !fastmode) ? 2u : 1u);
 
     total_size_B += sizeof(LowT) * sizeB * num_B_lo;
-    total_size_B += sizeof(int16_t) * size_vecB * (enable_skip_scalB ? 2u : 1u);
+    total_size_B += sizeof(int16_t) * size_vecB * ((enable_skip_scalB && !fastmode) ? 2u : 1u);
 
     total_size_C += sizeC_Mid * (num_C_mid - 1);
     total_size_C += std::max<size_t>(pointer_array_bytes + lwork_blas, sizeC_Mid);

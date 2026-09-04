@@ -1,5 +1,6 @@
 #pragma once
 #include "include.hpp"
+#include "../../config/config.hpp"
 
 namespace gemmul8::common {
 
@@ -134,6 +135,7 @@ struct LtMatmulPlan {
 
 struct Handle_t {
     HandleKind kind;
+    config::ConfigSnapshot config{};
     cublasHandle_t cublas{};
     cublasLtHandle_t cublasLt{};
 
@@ -156,15 +158,15 @@ struct Handle_t {
     int nB   = 0;
     std::unordered_map<LtMatmulKey, LtMatmulPlan, LtMatmulKeyHash> plan_cache;
 
-    bool fp8_k_blocking       = false;
-    int fp8_k_block_first     = 0;
-    int fp8_k_block_next      = 0;
-    float fp8_modulus         = 0.0f;
-    float fp8_neg_inv_modulus = 0.0f;
-    float fp8_half_modulus    = 0.0f;
+    bool matprod_k_blocking   = false;
+    int matprod_k_block_first = 0;
+    int matprod_k_block_next  = 0;
+    unsigned modulus_idx      = 0;
 
-    Handle_t(CublasTag, cublasHandle_t h) : kind(HandleKind::cuBLAS), cublas(h) {}
-    Handle_t(CublasLtTag, cublasLtHandle_t h) : kind(HandleKind::cuBLASLt), cublasLt(h) {}
+    Handle_t(CublasTag, cublasHandle_t h)
+        : kind(HandleKind::cuBLAS), config(config::get_config(h)), cublas(h) {}
+    Handle_t(CublasLtTag, cublasLtHandle_t h)
+        : kind(HandleKind::cuBLASLt), config(config::get_configLt(h)), cublasLt(h) {}
 };
 
 template <Backend BACKEND, Func FUNC>
@@ -182,6 +184,7 @@ inline void set_handle(
     constexpr cublasOperation_t transa = CUBLAS_OP_T;
     constexpr cublasOperation_t transb = CUBLAS_OP_N;
 
+    h.matprod_k_blocking   = false;
     h.workspaceSizeInBytes = workspaceSizeInBytes;
 
     if (h.kind == HandleKind::cuBLAS) {

@@ -249,36 +249,34 @@ static inline cublasStatus_t run_gemmul8_syrk_emulation(const SyrkArgs<T> &a, co
     cublasStatus_t st_ord = gemmul8::hook::ensure_stream_ordered_locked(*sp, stream);
     if (st_ord != CUBLAS_STATUS_SUCCESS) return st_ord;
 
+    const auto ws_config = gemmul8::hook::workspace_config(a.handle, env.enable_skipA, false);
+
     size_t wsizeA      = 0;
     const size_t wsize = call_gemmul8_syrk_workSize<T>(
         env.backend,
         a.n, a.k,
         env.num_moduli,
-        env.enable_skipA,
+        ws_config.enable_skipA,
         &wsizeA);
 
     if (wsize < wsizeA) return CUBLAS_STATUS_INVALID_VALUE;
 
-    const size_t needA = wsizeA;
-    const size_t needC = wsize - needA;
+    const auto request = gemmul8::hook::workspace_request(ws_config, wsize, wsizeA, 0);
 
-    size_t reqA = needA;
-    size_t reqC = needC;
+    cublasStatus_t st = CUBLAS_STATUS_SUCCESS;
 
-    if (env.enable_skipA) {
-        reqA = std::max(reqA, gemmul8::hook::max_workSizeA);
-        reqC = std::max(reqC, gemmul8::hook::max_workSizeC);
+    if (ws_config.memory_saving) {
+        st = gemmul8::hook::prepare_memory_saving_workspaces_locked(*sp, request, ws_config.limit, stream);
+        if (st != CUBLAS_STATUS_SUCCESS) return st;
     }
 
     void *workA_raw = nullptr;
     void *workC_raw = nullptr;
 
-    cublasStatus_t st = CUBLAS_STATUS_SUCCESS;
-
-    st = gemmul8::hook::get_work_locked(*sp, sp->workA, sp->workA_size, reqA, &workA_raw, "workA", stream);
+    st = gemmul8::hook::get_work_locked(*sp, sp->workA, sp->workA_size, request.workA, &workA_raw, "workA", stream);
     if (st != CUBLAS_STATUS_SUCCESS) return st;
 
-    st = gemmul8::hook::get_work_locked(*sp, sp->workC, sp->workC_size, reqC, &workC_raw, "workC", stream);
+    st = gemmul8::hook::get_work_locked(*sp, sp->workC, sp->workC_size, request.workC, &workC_raw, "workC", stream);
     if (st != CUBLAS_STATUS_SUCCESS) return st;
 
     int8_t *workA = reinterpret_cast<int8_t *>(workA_raw);
@@ -288,7 +286,7 @@ static inline cublasStatus_t run_gemmul8_syrk_emulation(const SyrkArgs<T> &a, co
         a.A, a.n, a.k, a.lda, a.trans,
         env.num_moduli, env.fastmode, env.backend);
 
-    const bool skipA = gemmul8::hook::can_skip_scaled_operand_locked(*sp, keyA, workA, env.enable_skipA);
+    const bool skipA = gemmul8::hook::can_skip_scaled_operand_locked(*sp, keyA, workA, ws_config.enable_skipA);
 
     st = call_gemmul8_syrk<T>(
         env.backend,
@@ -301,7 +299,7 @@ static inline cublasStatus_t run_gemmul8_syrk_emulation(const SyrkArgs<T> &a, co
         env.num_moduli, env.fastmode,
         reinterpret_cast<void *>(workC),
         reinterpret_cast<void *>(workA),
-        env.enable_skipA,
+        ws_config.enable_skipA,
         skipA,
         stream);
 
