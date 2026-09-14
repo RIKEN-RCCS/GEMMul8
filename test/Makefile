@@ -5,6 +5,14 @@
 #   cuda, hip, or auto (auto-detect using nvidia-smi/rocminfo)
 BACKEND ?= auto
 
+# Operation families (each includes its ordinary and Lt API).
+# Example: OPS="gemm trsm". Default: every operation.
+OPS ?= all
+
+# Ozaki-II arithmetic backends, independent of BACKEND=cuda|hip.
+# Example: OZ2_BACKENDS=INT8 or OZ2_BACKENDS=FP8.
+OZ2_BACKENDS ?= INT8 FP8
+
 # Path to CUDA toolkit installation
 CUDA_PATH ?= /usr/local/cuda
 
@@ -20,6 +28,29 @@ HIP_PATH ?= /opt/rocm
 # see https://rocm.docs.amd.com/en/latest/reference/gpu-arch-specs.html for AMD GPUs
 GPU_ARCH ?= auto
 
+
+ALL_OPS := gemm symm syrk syr2k syrkx hemm herk her2k herkx trmm trsm trtrmm
+BUILD_OPS := $(sort $(strip $(OPS)))
+ifneq ($(filter all,$(BUILD_OPS)),)
+BUILD_OPS := $(sort $(ALL_OPS))
+endif
+ifneq ($(filter-out all $(ALL_OPS),$(OPS)),)
+$(error Unknown OPS: $(filter-out all $(ALL_OPS),$(OPS)))
+endif
+ifeq ($(BUILD_OPS),)
+$(error OPS must contain at least one operation or all)
+endif
+
+BUILD_OZ2_BACKENDS := $(sort $(strip $(OZ2_BACKENDS)))
+ifneq ($(filter-out INT8 FP8,$(BUILD_OZ2_BACKENDS)),)
+$(error OZ2_BACKENDS must contain INT8 and/or FP8)
+endif
+ifeq ($(BUILD_OZ2_BACKENDS),)
+$(error OZ2_BACKENDS must contain INT8 and/or FP8)
+endif
+
+BUILD_DEFINES := $(foreach b,INT8 FP8,-DGEMMUL8_BUILD_$(b)=$(if $(filter $(b),$(BUILD_OZ2_BACKENDS)),1,0))
+BUILD_DEFINES += $(foreach op,$(ALL_OPS),-DGEMMUL8_BUILD_OP_$(op)=$(if $(filter $(op),$(BUILD_OPS)),1,0))
 
 #===============
 # Auto-detect backend (CUDA or HIP)
@@ -82,18 +113,23 @@ ARCH := --offload-arch=$(GPU_ARCH)
 
 endif
 
+FLAGS += $(BUILD_DEFINES)
 
 #===============
 # Files
 #===============
 TARGET := test
-CU_SRC := test.cu \
-          $(wildcard time/*.cu) \
-          $(wildcard accuracy/*.cu)
+
+TIME_SRC := $(addsuffix .cu,$(addprefix time/time_,$(BUILD_OPS)))
+ACCURACY_SRC := $(addsuffix .cu,$(addprefix accuracy/accuracy_,$(BUILD_OPS)))
+
+CU_SRC := test.cu $(TIME_SRC) $(ACCURACY_SRC)
 CU_OBJ := $(CU_SRC:.cu=.o)
+
 TEMPDIR ?= tmp
 export TMPDIR := $(abspath $(TEMPDIR))
 COMPILE_INFO := compile_info
+ACTIVE_CONFIG := $(TEMPDIR)/active-config
 
 HOST_CXX ?= $(CXX)
 ifeq ($(strip $(HOST_CXX)),)
@@ -104,14 +140,29 @@ endif
 # compile
 #===============
 
-.PHONY: all clean info run
+.PHONY: all clean info run FORCE
 
 all: $(TARGET)
 
 $(TARGET): $(CU_OBJ)
 	$(COMPILER) $(FLAGS) $(ARCH) $(CU_OBJ) -o $@ $(LIBS)
 
-%.o: %.cu | $(TEMPDIR) info
+FORCE:
+
+$(ACTIVE_CONFIG): FORCE | $(TEMPDIR)
+	@{ \
+	    echo "BACKEND=$(BACKEND)"; \
+	    echo "GPU_ARCH=$(GPU_ARCH)"; \
+	    echo "OPS=$(BUILD_OPS)"; \
+	    echo "OZ2_BACKENDS=$(BUILD_OZ2_BACKENDS)"; \
+	} > $@.tmp
+	@if [ ! -f $@ ] || ! cmp -s $@.tmp $@; then \
+	    mv $@.tmp $@; \
+	else \
+	    rm -f $@.tmp; \
+	fi
+
+%.o: %.cu Makefile $(ACTIVE_CONFIG) | $(TEMPDIR) info
 	@mkdir -p $(dir $@)
 	$(COMPILER) $(FLAGS) $(ARCH) -c $< -o $@
 
@@ -122,6 +173,8 @@ info: | $(TEMPDIR)
 	@{ \
 	    echo ""; \
 	    echo "BACKEND      : $(BACKEND)"; \
+	    echo "OPS          : $(BUILD_OPS)"; \
+	    echo "OZ2_BACKENDS : $(BUILD_OZ2_BACKENDS)"; \
 	    if [ "$(BACKEND)" = "cuda" ]; then \
 	        echo "CUDA_PATH    : $(CUDA_PATH)"; \
 	    fi; \

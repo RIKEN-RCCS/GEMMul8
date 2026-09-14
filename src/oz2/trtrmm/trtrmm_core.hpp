@@ -36,6 +36,8 @@ std::vector<double> run(
     constexpr cublasDiagType_t DN    = CUBLAS_DIAG_NON_UNIT;
     constexpr cublasFillMode_t UC    = CUBLAS_FILL_MODE_FULL;
 
+    if (n == 0) return std::vector<double>(4, 0.0);
+
     const bool memory_saving_mode = handle.config.memory_saving;
     const size_t limit            = handle.config.max_worksize;
     const bool memory_saving      = memory_saving_mode && limit > 0;

@@ -32,7 +32,9 @@ std::vector<double> run(
     constexpr common::MatStruct SF = common::MatStruct::Full;
     constexpr common::MatStruct ST = common::MatStruct::Triangular;
 
-    const bool left               = side == CUBLAS_SIDE_LEFT;
+    const bool left = side == CUBLAS_SIDE_LEFT;
+    if (rowsC == 0 || colsC == 0) return std::vector<double>(4, 0.0);
+
     const bool memory_saving_mode = handle.config.memory_saving;
     const size_t limit            = handle.config.max_worksize;
     const bool memory_saving      = memory_saving_mode && limit > 0;

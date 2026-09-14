@@ -11,9 +11,9 @@
  *   | Variable pattern                         | Default | Description                                                                         |
  *   | :--------------------------------------- | :------ | :---------------------------------------------------------------------------------- |
  *   | GEMMUL8_BACKEND_<OP>                     | INT8    | Emulation backend. 0 or INT8 = INT8 backend; 1 or FP8 = FP8 backend.                |
- *   | GEMMUL8_NUM_MOD_S_<OP>                   | 0       | Number of moduli for FP32 real routines. Native BLAS is used if outside [2, 13].    |
+ *   | GEMMUL8_NUM_MOD_S_<OP>                   | 0       | Number of moduli for FP32 real routines. Native BLAS is used if outside [2, 18].    |
  *   | GEMMUL8_NUM_MOD_D_<OP>                   | 0       | Number of moduli for FP64 real routines. Native BLAS is used if outside [2, 20].    |
- *   | GEMMUL8_NUM_MOD_C_<OP>                   | 0       | Number of moduli for FP32 complex routines. Native BLAS is used if outside [2, 13]. |
+ *   | GEMMUL8_NUM_MOD_C_<OP>                   | 0       | Number of moduli for FP32 complex routines. Native BLAS is used if outside [2, 18]. |
  *   | GEMMUL8_NUM_MOD_Z_<OP>                   | 0       | Number of moduli for FP64 complex routines. Native BLAS is used if outside [2, 20]. |
  *   | GEMMUL8_FASTMODE_S_<OP>                  | 1       | Fast mode switch for FP32 real routines. 1 = fast mode; 0 = accurate mode.          |
  *   | GEMMUL8_FASTMODE_D_<OP>                  | 1       | Fast mode switch for FP64 real routines. 1 = fast mode; 0 = accurate mode.          |
@@ -164,6 +164,7 @@
  *     invalidated automatically.
  */
 #pragma once
+#include "../src/build_config.hpp"
 #include "../include/gemmul8.hpp"
 #include "../src/config/config.hpp"
 #include "../src/oz2/common/include.hpp"
@@ -191,9 +192,7 @@ inline size_t max_workSizeB = 0;
 inline size_t max_workSizeC = 0;
 inline std::once_flag g_maxws_once;
 
-template <typename T> inline constexpr int num_moduli_threshold       = 20;
-template <> inline constexpr int num_moduli_threshold<float>          = 13;
-template <> inline constexpr int num_moduli_threshold<cuFloatComplex> = 13;
+template <typename T> inline constexpr int num_moduli_threshold = 20;
 
 enum class MaxWSBackend : unsigned {
     INT8 = 0,
@@ -260,12 +259,21 @@ static inline HookOp hook_op_from_trsm_side(const cublasSideMode_t side) {
 // ---- Default initialization values ----
 namespace initial_vals {
 
+#if GEMMUL8_BUILD_INT8
 inline constexpr Backend BACKEND = Backend::INT8;
+#else
+inline constexpr Backend BACKEND = Backend::FP8;
+#endif
 
-inline constexpr size_t MAX_M               = 0u; // default M size
-inline constexpr size_t MAX_N               = 0u; // default N size
-inline constexpr size_t MAX_K               = 0u; // default K size
+inline constexpr size_t MAX_M = 0u; // default M size
+inline constexpr size_t MAX_N = 0u; // default N size
+inline constexpr size_t MAX_K = 0u; // default K size
+
+#if GEMMUL8_BUILD_INT8
 inline constexpr MaxWSBackend MaxWS_BACKEND = MaxWSBackend::INT8;
+#else
+inline constexpr MaxWSBackend MaxWS_BACKEND = MaxWSBackend::FP8;
+#endif
 
 inline constexpr int MAX_NUM_MOD = 2; // default modulus count
 inline constexpr int NUM_MOD_D   = 0; // default double moduli
@@ -635,6 +643,11 @@ static inline Backend env_backend(const char *s, Backend def) {
     return def;
 }
 
+static inline bool backend_is_built(const Backend backend) {
+    return (backend == Backend::INT8 && GEMMUL8_BUILD_INT8) ||
+           (backend == Backend::FP8 && GEMMUL8_BUILD_FP8);
+}
+
 static inline Backend requested_backend(const HookOp op) {
     return env_backend(getenv_op("GEMMUL8_BACKEND", op), initial_vals::BACKEND);
 }
@@ -780,6 +793,7 @@ static inline void update_maxws_for_hook_op_typed(
     const int num_moduli = requested_max_num_mod(op);
 
     switch (op) {
+#if GEMMUL8_BUILD_OP_gemm
     case HookOp::GEMM: {
         const size_t m = requested_max_m(op);
         const size_t n = requested_max_n(op);
@@ -791,7 +805,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_symm
     case HookOp::SYMM_LEFT: {
         const size_t m = requested_max_m(op);
         const size_t n = requested_max_n(op);
@@ -802,7 +818,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_symm
     case HookOp::SYMM_RIGHT: {
         const size_t m = requested_max_m(op);
         const size_t n = requested_max_n(op);
@@ -813,7 +831,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_syrk
     case HookOp::SYRK: {
         const size_t n = requested_max_n(op);
         const size_t k = requested_max_k(op);
@@ -824,7 +844,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_syr2k
     case HookOp::SYR2K: {
         const size_t n = requested_max_n(op);
         const size_t k = requested_max_k(op);
@@ -835,7 +857,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_syrkx
     case HookOp::SYRKX: {
         const size_t n = requested_max_n(op);
         const size_t k = requested_max_k(op);
@@ -846,7 +870,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_hemm
     case HookOp::HEMM_LEFT: {
         if constexpr (COMPLEX) {
             const size_t m = requested_max_m(op);
@@ -859,7 +885,9 @@ static inline void update_maxws_for_hook_op_typed(
         }
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_hemm
     case HookOp::HEMM_RIGHT: {
         if constexpr (COMPLEX) {
             const size_t m = requested_max_m(op);
@@ -872,7 +900,9 @@ static inline void update_maxws_for_hook_op_typed(
         }
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_herk
     case HookOp::HERK: {
         if constexpr (COMPLEX) {
             const size_t n = requested_max_n(op);
@@ -885,7 +915,9 @@ static inline void update_maxws_for_hook_op_typed(
         }
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_her2k
     case HookOp::HER2K: {
         if constexpr (COMPLEX) {
             const size_t n = requested_max_n(op);
@@ -898,7 +930,9 @@ static inline void update_maxws_for_hook_op_typed(
         }
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_herkx
     case HookOp::HERKX: {
         if constexpr (COMPLEX) {
             const size_t n = requested_max_n(op);
@@ -911,7 +945,9 @@ static inline void update_maxws_for_hook_op_typed(
         }
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_trmm
     case HookOp::TRMM_LEFT: {
         const size_t m = requested_max_m(op);
         const size_t n = requested_max_n(op);
@@ -922,7 +958,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_trmm
     case HookOp::TRMM_RIGHT: {
         const size_t m = requested_max_m(op);
         const size_t n = requested_max_n(op);
@@ -933,7 +971,9 @@ static inline void update_maxws_for_hook_op_typed(
             maxA, maxB, maxC);
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_trsm
     case HookOp::TRSM_LEFT: {
         const size_t m = requested_max_m(op);
         const size_t n = requested_max_n(op);
@@ -947,7 +987,9 @@ static inline void update_maxws_for_hook_op_typed(
         }
         break;
     }
+#endif
 
+#if GEMMUL8_BUILD_OP_trsm
     case HookOp::TRSM_RIGHT: {
         const size_t m = requested_max_m(op);
         const size_t n = requested_max_n(op);
@@ -961,6 +1003,8 @@ static inline void update_maxws_for_hook_op_typed(
         }
         break;
     }
+#endif
+    default: break;
     }
 }
 
@@ -993,6 +1037,7 @@ static inline void update_maxws_for_one_op(HookOp op, size_t &maxA, size_t &maxB
     const bool want_complex =
         hook_op_is_hermitian_family(op) || (nmod_c > 0) || (nmod_z > 0);
 
+#if GEMMUL8_BUILD_INT8
     if (do_int8) {
         update_maxws_for_hook_op_typed<false, Backend::INT8>(
             op, maxA, maxB, maxC);
@@ -1002,7 +1047,9 @@ static inline void update_maxws_for_one_op(HookOp op, size_t &maxA, size_t &maxB
                 op, maxA, maxB, maxC);
         }
     }
+#endif
 
+#if GEMMUL8_BUILD_FP8
     if (do_fp8) {
         update_maxws_for_hook_op_typed<false, Backend::FP8>(
             op, maxA, maxB, maxC);
@@ -1012,6 +1059,7 @@ static inline void update_maxws_for_one_op(HookOp op, size_t &maxA, size_t &maxB
                 op, maxA, maxB, maxC);
         }
     }
+#endif
 }
 
 static void init_max_workspace() {

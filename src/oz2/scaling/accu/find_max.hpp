@@ -39,16 +39,16 @@ __device__ __forceinline__ int32_t complex_int_bound(
 
 __device__ __forceinline__ float complex_fp8_bound(
     const float nu, // correction
-    const float x1, // (Re(A)-Im(A)) * (Re(B)-Im(B))
+    const float x1, // abs(Re(A)-Im(A)) * abs(Re(B)-Im(B))
     const float x2, // Re(A)*Im(B)
     const float x3  // Im(A)*Re(B)
 ) {
     const float x2_up = fp8_upper_bound(nu, x2); // Re(A)*Im(B)
     const float x3_up = fp8_upper_bound(nu, x3); // Im(A)*Re(B)
     const float im_up = __fadd_ru(x2_up, x3_up); // Re(A)*Im(B) + Im(A)*Re(B)
-    const float x1_up = fp8_upper_bound(nu, x1); // (Re(A)-Im(A)) * (Re(B)-Im(B))
-    const float re_up = __fadd_ru(x1_up, im_up); // Re(A)*Re(B) + Im(A)*Im(B)
-    return max(re_up, im_up);
+    const float x1_up = fp8_upper_bound(nu, x1); // abs(Re(A)-Im(A)) * abs(Re(B)-Im(B))
+    const float re_up = __fadd_ru(x1_up, im_up); // upper bound of Re(A)*Re(B) + Im(A)*Im(B)
+    return re_up;
 }
 
 //------------------------------
@@ -174,7 +174,7 @@ __device__ __forceinline__ float find_max_real_8f(
     const float *const __restrict__ C_hi,
     float *samax //
 ) {
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
@@ -213,7 +213,7 @@ __device__ __forceinline__ float find_max_complex_8f(
     const float *const __restrict__ C_hi_3,
     float *samax //
 ) {
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
@@ -311,7 +311,7 @@ __device__ __forceinline__ float find_max_tile_real_8f(
     float samax[][common::TILE_DIM + 1] //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     if (row_idx < m) {
@@ -430,7 +430,7 @@ __device__ __forceinline__ float find_max_tile_complex_8f(
     float samax[][common::TILE_DIM + 1] //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     if (row_idx < m) {
@@ -670,7 +670,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8f(
     const unsigned col_end_in //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const unsigned col_end = min(n, col_end_in);
@@ -823,7 +823,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f(
     const unsigned col_end_in //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const unsigned col_end = min(n, col_end_in);
@@ -948,7 +948,7 @@ __device__ __forceinline__ float find_max_real_8f_with_delta(
     const int16_t *const __restrict__ delta,
     float *samax //
 ) {
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
@@ -991,7 +991,7 @@ __device__ __forceinline__ float find_max_complex_8f_with_delta(
     const int16_t *const __restrict__ delta,
     float *samax //
 ) {
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
@@ -1106,7 +1106,7 @@ __device__ __forceinline__ float find_max_tile_real_8f_with_delta(
     float samax[][common::TILE_DIM + 1] //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     if (row_idx < m) {
@@ -1241,7 +1241,7 @@ __device__ __forceinline__ float find_max_tile_complex_8f_with_delta(
     float samax[][common::TILE_DIM + 1] //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     if (row_idx < m) {
@@ -1414,7 +1414,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8f_with_delta(
     const unsigned col_end_in //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const unsigned col_end = min(n, col_end_in);
@@ -1579,7 +1579,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
     const unsigned col_end_in //
 ) {
     unsigned row_idx  = blockIdx.x * common::TILE_DIM + threadIdx.x;
-    const float scale = k * UNIT_ROUNDOFF;
+    const float scale = __uint2float_ru(k) * UNIT_ROUNDOFF;
     float amax        = 0.0F;
 
     const unsigned col_end = min(n, col_end_in);

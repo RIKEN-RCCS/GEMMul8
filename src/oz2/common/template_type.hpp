@@ -41,7 +41,7 @@ template <typename T> struct matptr_type<T, true> {
     __forceinline__ void shift(const size_t offset) {
         ptr0 += offset;
         ptr1 += offset;
-        ptr2 += offset;
+        if (ptr2 != nullptr) ptr2 += offset;
     }
 };
 template <typename T> struct matptr_type<T, false> {
@@ -52,10 +52,11 @@ template <typename T> struct matptr_type<T, false> {
 };
 template <typename T, bool COMPLEX> using matptr_t = matptr_type<T, COMPLEX>;
 
-template <typename T, bool COMPLEX>
+template <typename T, bool COMPLEX, unsigned PARTS = COMPLEX ? 3U : 1U>
 __forceinline__ matptr_t<T, COMPLEX> make_matptr(T *const base, const size_t offset) {
     if constexpr (COMPLEX) {
-        return matptr_t<T, true>{base, base + offset, base + offset * 2};
+        static_assert(PARTS == 2U || PARTS == 3U);
+        return matptr_t<T, true>{base, base + offset, PARTS == 3U ? base + offset * 2 : nullptr};
     } else {
         return matptr_t<T, false>{base};
     }

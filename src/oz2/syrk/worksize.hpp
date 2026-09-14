@@ -11,7 +11,7 @@ inline size_t workSize(
     size_t *workSizeA, size_t *workSizeB, bool fastmode //
 ) {
     if (workSizeB != nullptr) *workSizeB = 0;
-    return core::workSize_rk<is_Complex, BACKEND>(m, k, NUM_MODULI, workSizeA);
+    return core::workSize_rk<is_Complex, BACKEND>(m, k, NUM_MODULI, workSizeA, fastmode);
 }
 
 } // namespace gemmul8::oz2::syrk

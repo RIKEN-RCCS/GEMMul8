@@ -31,7 +31,20 @@ inline constexpr cublasFillMode_t UPLO = GEMMUL8_INST_FILLMODE;
 
 } // namespace
 
+#if defined(GEMMUL8_INST_HERMITIAN) && GEMMUL8_INST_HERMITIAN
+    #define INSTANTIATE_HERMITIAN(NM)                                            \
+        template void undo_scaling<T, TALPHA, TBETA, BE, NM, UPLO, false, true>( \
+            const cudaStream_t, const unsigned, const unsigned,                  \
+            common::mid_t<BE, common::isComplex<T>> *,                           \
+            const size_t, const size_t, T *const, const size_t,                  \
+            const int16_t *const, const int16_t *const,                          \
+            const TALPHA *const, const TBETA *const);
+#else
+    #define INSTANTIATE_HERMITIAN(NM)
+#endif
+
 #define INSTANTIATE_THIS(NM)                                           \
+    INSTANTIATE_HERMITIAN(NM)                                          \
     template void undo_scaling<T, TALPHA, TBETA, BE, NM, UPLO, true>(  \
         const cudaStream_t,                                            \
         const unsigned, const unsigned,                                \
@@ -70,5 +83,6 @@ INSTANTIATE_THIS(19U)
 INSTANTIATE_THIS(20U)
 
 #undef INSTANTIATE_THIS
+#undef INSTANTIATE_HERMITIAN
 
 } // namespace gemmul8::undo_scaling

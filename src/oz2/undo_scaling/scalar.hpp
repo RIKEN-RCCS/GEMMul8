@@ -48,35 +48,47 @@ template <> struct scalar_type<DeviceScalar<cuDoubleComplex>> {
 };
 template <typename T> using scalar_t = typename scalar_type<T>::type;
 
+template <typename T, typename TAlpha, typename TBeta>
+__device__ __forceinline__ T axpby(const TAlpha a, const T x, const TBeta b, const T *C) {
+    if (is_zero(b)) return common::Tmul<TAlpha, T>(a, x);
+    return common::Taxpby<T, TAlpha, TBeta>(a, x, b, *C);
+}
+
+template <typename T, typename TBeta>
+__device__ __forceinline__ T scale_or_zero(const TBeta b, const T *C) {
+    if (is_zero(b)) return common::Tconst<T>::zero();
+    return common::Tmul<TBeta, T>(b, *C);
+}
+
 // C_new = alpha*D + beta*C_old
 template <typename T, int ALPHA, int BETA>
-__device__ __forceinline__ T Taxpby_special(const T D, const T C_old) {
+__device__ __forceinline__ T Taxpby_special(const T D, const T *C_old) {
     if constexpr (ALPHA == 1) {
         if constexpr (BETA == 0) {
             return D;
         } else if constexpr (BETA == 1) {
-            return common::Tadd<T>(C_old, D);
+            return common::Tadd<T>(*C_old, D);
         } else if constexpr (BETA == -1) {
-            return common::Tsub<T>(D, C_old);
+            return common::Tsub<T>(D, *C_old);
         }
     } else if constexpr (ALPHA == -1) {
         if constexpr (BETA == 0) {
             return common::Tneg<T>(D);
         } else if constexpr (BETA == 1) {
-            return common::Tsub<T>(C_old, D);
+            return common::Tsub<T>(*C_old, D);
         } else if constexpr (BETA == -1) {
-            return common::Tsub<T>(common::Tneg<T>(D), C_old);
+            return common::Tsub<T>(common::Tneg<T>(D), *C_old);
         }
     }
     return common::Tconst<T>::zero();
 }
 
 template <typename T, int BETA>
-__device__ __forceinline__ T Tmul_special(const T C_old) {
+__device__ __forceinline__ T Tmul_special(const T *C_old) {
     if constexpr (BETA == 1) {
-        return C_old;
+        return *C_old;
     } else if constexpr (BETA == -1) {
-        return common::Tneg<T>(C_old);
+        return common::Tneg<T>(*C_old);
     }
     return common::Tconst<T>::zero();
 }

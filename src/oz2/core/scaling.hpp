@@ -352,7 +352,7 @@ inline void scaling_accu(
         if (enable_skip_scalA) {
             constexpr unsigned threads_delta = 256;
             const unsigned grid_delta        = (m + threads_delta - 1) / threads_delta;
-            scaling::accu::calc_sft_delta<BACKEND, NUM_MODULI>
+            scaling::accu::calc_sft_delta<BACKEND, NUM_MODULI, common::isComplex<TA>>
                 <<<grid_delta, threads_delta, 0, stream>>>(m, sftA, sftA_delta);
         }
     }
@@ -405,7 +405,7 @@ inline void scaling_accu(
         if (enable_skip_scalB) {
             constexpr unsigned threads_delta = 256;
             const unsigned grid_delta        = (n + threads_delta - 1) / threads_delta;
-            scaling::accu::calc_sft_delta<BACKEND, NUM_MODULI>
+            scaling::accu::calc_sft_delta<BACKEND, NUM_MODULI, common::isComplex<TA>>
                 <<<grid_delta, threads_delta, 0, stream>>>(n, sftB, sftB_delta);
         }
     }

@@ -9,6 +9,9 @@ The library is based on the Ozaki Scheme II and supports selectable INT8- or FP8
 This design enables bit-wise reproducible results while using low-precision matrix engines for high-throughput computation.
 
 - [Technical Overview](#technical-overview)
+  - [Scaling Modes](#scaling-modes)
+  - [Accuracy Guidelines](#accuracy-guidelines)
+  - [Complex-valued operations](#complex-valued-operations)
 - [Requirements](#requirements)
 - [Supported operations](#supported-operations)
 - [Build](#build)
@@ -18,6 +21,7 @@ This design enables bit-wise reproducible results while using low-precision matr
     - [HIP build](#hip-build)
 - [Running Test Codes](#running-test-codes)
   - [Test options](#test-options)
+  - [](#)
   - [Routine options](#routine-options)
   - [Precision options](#precision-options)
   - [Disable options](#disable-options)
@@ -28,6 +32,7 @@ This design enables bit-wise reproducible results while using low-precision matr
   - [1. Direct Usage (Normal mode)](#1-direct-usage-normal-mode)
     - [Example: run emulation for the CUDA backend](#example-run-emulation-for-the-cuda-backend)
     - [Public API](#public-api)
+    - [Zero coefficients and empty dimensions](#zero-coefficients-and-empty-dimensions)
     - [Handle-local execution settings](#handle-local-execution-settings)
     - [Return value](#return-value)
     - [Workspace query](#workspace-query)
@@ -69,17 +74,59 @@ GEMMul8 supports two low-precision emulation backends:
 >
 > This library does not support FP8-based emulation on Hopper architectures.
 
+### Scaling Modes
+
+For fast mode (`fastmode = true`), GEMMul8 uses the improved scaling method proposed by [Kawakami and Takahashi (2026)](https://doi.org/10.48550/arXiv.2606.29129).
+Fast mode is recommended for most cases.
+
+For accurate mode (`fastmode = false`), GEMMul8 uses the scaling method described in [Uchino et al. (2026)](https://doi.org/10.1145/3731599.3767539).
+When the input matrices have a wide dynamic range, accurate mode is more likely to provide higher accuracy than fast mode, particularly with the FP8 backend.
+
+### Accuracy Guidelines
+
 As a practical rule of thumb, the following settings typically provide accuracy comparable to cuBLAS INT8-based fixed-point emulation with `mantissaBitCount = 55`, corresponding to INT8-based Ozaki Scheme I with 7 slices.
 
-| Backend | `num_moduli` | `fastmode`         |
-| :------ | :----------- | :----------------- |
-| INT8    | 14 or 15     | `true` (fast mode) |
-| FP8     | 10 or 11     | `true` (fast mode) |
+| Type    | Backend | `num_moduli` | `fastmode`         |
+| :------ | :------ | :----------- | :----------------- |
+| Real    | INT8    | 14 or 15     | `true` (fast mode) |
+| Complex | INT8    | 15 or 16     | `true` (fast mode) |
+| Real    | FP8     | 10 or 11     | `true` (fast mode) |
+| Complex | FP8     | 11 or 12     | `true` (fast mode) |
 
 > [!NOTE]
 >
 > These values are practical starting points, not accuracy guarantees.
 > The required number of moduli depends on the input matrices and the target application.
+
+The following table shows the approximate effective bits for fixed-point emulation.
+
+| `num_moduli` | INT8-Real | INT8-Complex | FP8-Real | FP8-Complex |
+| :----------- | :-------- | :----------- | :------- | :---------- |
+| 2            | 8         | 8            | 11       | 11          |
+| 3            | 12        | 12           | 17       | 16          |
+| 4            | 16        | 16           | 22       | 21          |
+| 5            | 20        | 20           | 27       | 26          |
+| 6            | 24        | 23           | 33       | 31          |
+| 7            | 28        | 27           | 38       | 36          |
+| 8            | 32        | 31           | 43       | 41          |
+| 9            | 36        | 35           | 48       | 45          |
+| 10           | 40        | 38           | 53       | 50          |
+| 11           | 44        | 42           | 58       | 55          |
+| 12           | 47        | 45           | 63       | 60          |
+| 13           | 51        | 49           | 68       | 65          |
+| 14           | 55        | 52           | 73       | 70          |
+| 15           | 59        | 56           | 78       | 75          |
+| 16           | 63        | 59           | 83       | 79          |
+| 17           | 66        | 62           | 87       | 84          |
+| 18           | 70        | 65           | 92       | 89          |
+| 19           | 74        | 68           | 97       | 94          |
+| 20           | 78        | 71           | 102      | 99          |
+
+### Complex-valued operations
+
+Complex-valued emulation uses the 2M multiplication method proposed by [Caday (2026)](https://doi.org/10.48550/arXiv.2609.05419) for the modular matrix-multiplication stage.
+The scaling stage continues to use the method proposed by [Uchino et al. (2026)](https://doi.org/10.23919/ISC.2026.11520500).
+Thus, adopting 2M changes the multiplication stage, not the scaling method.
 
 ## Requirements
 
@@ -143,13 +190,15 @@ make -j$(nproc)
 
 ### make options
 
-| Option      | Default           | Description                                                                                            |
-| :---------- | :---------------- | :----------------------------------------------------------------------------------------------------- |
-| `CUDA_PATH` | `/usr/local/cuda` | Path to your CUDA toolkit installation. Used for CUDA backends.                                        |
-| `HIP_PATH`  | `/opt/rocm`       | Path to your HIP (ROCm) toolkit installation. Used for HIP backends.                                   |
-| `BACKEND`   | `auto`            | Select GPU backend: `cuda`, `hip`, or `auto` (auto-detect).                                            |
-| `GPU_ARCH`  | `auto`            | Target GPU architecture.<br>Examples: `90` (H100), `100` (B200), `gfx90a` (MI250X), `gfx942` (MI300X). |
-| `TEMPDIR`   | `build/tmp`       | Temporary directory used by the compiler.                                                              |
+| Option         | Default           | Description                                                                                                       |
+| :------------- | :---------------- | :---------------------------------------------------------------------------------------------------------------- |
+| `CUDA_PATH`    | `/usr/local/cuda` | Path to your CUDA toolkit installation. Used for CUDA backends.                                                   |
+| `HIP_PATH`     | `/opt/rocm`       | Path to your HIP (ROCm) toolkit installation. Used for HIP backends.                                              |
+| `BACKEND`      | `auto`            | Select GPU backend: `cuda`, `hip`, or `auto` (auto-detect).                                                       |
+| `GPU_ARCH`     | `auto`            | Target GPU architecture.<br>Examples: `90` (H100), `100` (B200), `gfx90a` (MI250X), `gfx942` (MI300X).            |
+| `OPS`          | `all`             | Select operation families for compilation.<br>Examples: `OPS="gemm trmm"` (Builds only gemm and trmm).            |
+| `OZ2_BACKENDS` | `INT8 FP8`        | Select emulation backends for compilation.<br>Examples: `OZ2_BACKENDS="INT8"` (Builds only INT8-based emulation). |
+| `TEMPDIR`      | `build/tmp`       | Temporary directory used by the compiler.                                                                         |
 
 > [!NOTE]
 >
@@ -161,15 +210,21 @@ make -j$(nproc)
 
 #### CUDA build
 
-Build for an NVIDIA H100/H200 GPU (Compute Capability 9.0)
+Build for an NVIDIA H100/H200 GPU (Compute Capability 9.0):
 
 ```bash
 make -j$(nproc) BACKEND=cuda CUDA_PATH=/usr/local/cuda GPU_ARCH=90
 ```
 
+Build only GEMM and TRMM with the INT8 backend for an NVIDIA H100/H200 GPU:
+
+```bash
+make -j$(nproc) BACKEND=cuda CUDA_PATH=/usr/local/cuda GPU_ARCH=90 OPS="gemm trmm" OZ2_BACKENDS="INT8"
+```
+
 #### HIP build
 
-Build for an AMD MI300X GPU (gfx942 architecture)
+Build for an AMD MI300X GPU (gfx942 architecture):
 
 ```bash
 make -j$(nproc) BACKEND=hip HIP_PATH=/opt/rocm GPU_ARCH=gfx942
@@ -199,6 +254,13 @@ make run MODE="<test-option>... <routine-option>... <precision-option>... [disab
 | `time_square`        | Run timing tests for square matrices        |
 | `time_rectangle`     | Run timing tests for rectangular matrices   |
 
+###
+
+| Option         | Default    | Description                                                                                                       |
+| :------------- | :--------- | :---------------------------------------------------------------------------------------------------------------- |
+| `OPS`          | `all`      | Select operation families for compilation.<br>Examples: `OPS="gemm trmm"` (Builds only gemm and trmm).            |
+| `OZ2_BACKENDS` | `INT8 FP8` | Select emulation backends for compilation.<br>Examples: `OZ2_BACKENDS="INT8"` (Builds only INT8-based emulation). |
+
 ### Routine options
 
 | Option   | Description |
@@ -227,11 +289,11 @@ make run MODE="<test-option>... <routine-option>... <precision-option>... [disab
 
 ### Disable options
 
-| Option           | Description                 |
-| :--------------- | :-------------------------- |
-| `no_Ozaki2_INT8` | Disable Ozaki-II INT8 tests |
-| `no_Ozaki2_FP8`  | Disable Ozaki-II FP8 tests  |
-| `no_Ozaki1_INT8` | Disable Ozaki-I INT8 tests  |
+| Option               | Description                         |
+| :------------------- | :---------------------------------- |
+| `no_Ozaki2_INT8`     | Disable Ozaki-II INT8 tests         |
+| `no_Ozaki2_FP8`      | Disable Ozaki-II FP8 tests          |
+| `no_cuBLAS_FP64_emu` | Disable cuBLAS FP64 emulation tests |
 
 ### Memory saving options
 
@@ -372,6 +434,12 @@ The corresponding HIP APIs use `hipblasHandle_t` / `hipblasLtHandle_t`.
 > ```text
 > X * op(A) = alpha * B
 > ```
+
+#### Zero coefficients and empty dimensions
+
+- For routines with a `beta` parameter, the previous contents of `C` are not read when `beta == 0`.
+- For GEMM, SYRK, HERK, SYR2K, HER2K, SYRKX, and HERKX, `k == 0` reduces the operation to `C := beta * C`, respecting the routine's full-matrix or triangular output semantics.
+- Operations with an empty output matrix return immediately.
 
 #### Handle-local execution settings
 
@@ -834,9 +902,9 @@ export GEMMUL8_SKIP_SCALE_B=1
 | Variable pattern          | Default | Description                                                                                                               |
 | :------------------------ | :------ | :------------------------------------------------------------------------------------------------------------------------ |
 | `GEMMUL8_BACKEND_<OP>`    | `INT8`  | Selects the emulation backend. `0` or `INT8` = INT8 backend; `1` or `FP8` = FP8 backend.                                  |
-| `GEMMUL8_NUM_MOD_S_<OP>`  | `0`     | Number of moduli for FP32 real routines. Native BLAS is used if outside `[2, 13]`.                                        |
+| `GEMMUL8_NUM_MOD_S_<OP>`  | `0`     | Number of moduli for FP32 real routines. Native BLAS is used if outside `[2, 18]`.                                        |
 | `GEMMUL8_NUM_MOD_D_<OP>`  | `0`     | Number of moduli for FP64 real routines. Native BLAS is used if outside `[2, 20]`.                                        |
-| `GEMMUL8_NUM_MOD_C_<OP>`  | `0`     | Number of moduli for FP32 complex routines. Native BLAS is used if outside `[2, 13]`.                                     |
+| `GEMMUL8_NUM_MOD_C_<OP>`  | `0`     | Number of moduli for FP32 complex routines. Native BLAS is used if outside `[2, 18]`.                                     |
 | `GEMMUL8_NUM_MOD_Z_<OP>`  | `0`     | Number of moduli for FP64 complex routines. Native BLAS is used if outside `[2, 20]`.                                     |
 | `GEMMUL8_FASTMODE_S_<OP>` | `1`     | Fast mode switch for FP32 real routines. `1` = fast mode; `0` = accurate mode.                                            |
 | `GEMMUL8_FASTMODE_D_<OP>` | `1`     | Fast mode switch for FP64 real routines. `1` = fast mode; `0` = accurate mode.                                            |
@@ -1111,13 +1179,16 @@ The following individuals helped conduct preliminary experiments on the B200 env
 - Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
 - Kawakami S. (2026). GEMMul8 (fork with improved fast mode scaling), GitHub, [https://github.com/kotatsumuri/GEMMul8](https://github.com/kotatsumuri/GEMMul8).
 - Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). DGEMM with Ozaki Scheme I/II on FP4 Tensor Cores: A Base-13 E2M1 Limb Representation, [doi.org/10.48550/arXiv.2608.06812](https://doi.org/10.48550/arXiv.2608.06812).
+- Caday P. (2026). The 2M Multiplication Algorithm for Complex Matrices, [doi.org/10.48550/arXiv.2609.05419](https://doi.org/10.48550/arXiv.2609.05419).
 
 ## Citations
 
 > [!NOTE]
 >
-> If you refer to the algorithm used in the fast mode, please also cite the following work:
-> Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
+> If you refer to the algorithm used in the fast mode, please also cite the following works:
+>
+> - Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
+> - Caday P. (2026). The 2M Multiplication Algorithm for Complex Matrices, [doi.org/10.48550/arXiv.2609.05419](https://doi.org/10.48550/arXiv.2609.05419).
 
 ```bibtex
 @inproceedings{10.1145/3731599.3767539,

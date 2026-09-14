@@ -82,7 +82,7 @@ __device__ __forceinline__ double2 init_complex_double(
     const common::mid_t<BACKEND, true> *const __restrict__ C_mid,
     const size_t incC_mid //
 ) {
-    constexpr double q = common::table::qPi_double<BACKEND, NUM_MODULI, 0>();
+    constexpr double q = common::table::qPi_double<BACKEND, NUM_MODULI, 0, true>();
     using Mid          = common::mid_t<BACKEND, true>;
     const double2 c    = common::Tcast<Mid, double2>(C_mid[0]);
     double2 acc;
@@ -97,7 +97,7 @@ __device__ __forceinline__ void accumulate_complex_double(
     const size_t incC_mid //
 ) {
     if constexpr (IDX < NUM_MODULI) {
-        constexpr double q = common::table::qPi_double<BACKEND, NUM_MODULI, IDX>();
+        constexpr double q = common::table::qPi_double<BACKEND, NUM_MODULI, IDX, true>();
         using Mid          = common::mid_t<BACKEND, true>;
         const double2 c    = common::Tcast<Mid, double2>(C_mid[IDX * incC_mid]);
 
@@ -122,7 +122,7 @@ __device__ __forceinline__ common::double2x2_t init_complex_double2(
     const common::mid_t<BACKEND, true> *const __restrict__ C_mid,
     const size_t incC_mid //
 ) {
-    constexpr double2 q = common::table::qPi_double2<BACKEND, NUM_MODULI, 0>();
+    constexpr double2 q = common::table::qPi_double2<BACKEND, NUM_MODULI, 0, true>();
     using Mid           = common::mid_t<BACKEND, true>;
     const double2 c     = common::Tcast<Mid, double2>(C_mid[0]);
 
@@ -142,7 +142,7 @@ __device__ __forceinline__ void accumulate_complex_double2(
     const size_t incC_mid //
 ) {
     if constexpr (IDX < NUM_MODULI) {
-        constexpr double2 q = common::table::qPi_double2<BACKEND, NUM_MODULI, IDX>();
+        constexpr double2 q = common::table::qPi_double2<BACKEND, NUM_MODULI, IDX, true>();
         using Mid           = common::mid_t<BACKEND, true>;
         const double2 c     = common::Tcast<Mid, double2>(C_mid[IDX * incC_mid]);
 

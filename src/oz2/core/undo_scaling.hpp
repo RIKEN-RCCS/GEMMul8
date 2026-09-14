@@ -33,6 +33,11 @@ inline void undo_scaling(
         undo_scaling::undo_scaling_her2k<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C>(
             stream, m, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
 
+    } else if constexpr (FUNC == Func::herk || FUNC == Func::herkx) {
+
+        undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C, false, true>(
+            stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+
     } else if constexpr (FUNC == Func::trtrmm) {
 
         if (op_A == CUBLAS_OP_N) {

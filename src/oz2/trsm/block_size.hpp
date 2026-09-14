@@ -41,6 +41,13 @@ inline int block_size_setting_trsm(size_t n, int arch, int nB_override) noexcept
         if constexpr (isDouble && isFP8) return (n <= 8192) ? 4096 : int(common::padding(n / 2));
         return 3072;
     }
+    case 107: {
+        if constexpr (isFloat && isINT8) return n;
+        if constexpr (isFloat && isFP8) return 4096;
+        if constexpr (isDouble && isINT8) return n;
+        if constexpr (isDouble && isFP8) return (n <= 8192) ? 4096 : int(common::padding(n / 2));
+        return 3072;
+    }
     case 120: {
         if constexpr (isFloat && isINT8) return n;
         if constexpr (isFloat && isFP8) return n;

@@ -18,68 +18,35 @@ __device__ __forceinline__ void scaling_colwise_full_device(
     const size_t lda_lo4, const size_t incA_lo4,
     const int32_t sft //
 ) {
-    using ValT = decltype(trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run(T{}, int32_t{}));
-    using Low4 = common::lowx4_t<BACKEND>;
-
-    const unsigned col_idx = blockIdx.x;
-    const unsigned rows4   = rows_A >> 2;
-    const unsigned tail    = rows_A & 3u;
-
+    using Low4              = common::lowx4_t<BACKEND>;
+    const unsigned col_idx  = blockIdx.x;
+    Low4 *__restrict__ out0 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
+    Low4 *__restrict__ out1 = nullptr;
     if constexpr (common::isComplex<T>) {
-        Low4 *__restrict__ out_1 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
-        Low4 *__restrict__ out_2 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
-        Low4 *__restrict__ out_3 = reinterpret_cast<Low4 *>(A_lo.ptr2) + col_idx * lda_lo4;
+        out1 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
+    }
 
-        unsigned i = threadIdx.x;
-        for (; i < rows4; i += blockDim.x) {
-            const unsigned idx = i << 2;
-
+    for (unsigned i = threadIdx.x; i < lda_lo4; i += blockDim.x) {
+        const unsigned row0 = i << 2;
+        if (row0 >= rows_A) {
+            if constexpr (common::isComplex<T>) {
+                mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out0 + i, out1 + i, incA_lo4);
+            } else {
+                mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out0 + i, incA_lo4);
+            }
+            continue;
+        }
+        const T z  = common::Tconst<T>::zero();
+        const T a0 = in[row0];
+        const T a1 = row0 + 1U < rows_A ? in[row0 + 1U] : z;
+        const T a2 = row0 + 2U < rows_A ? in[row0 + 2U] : z;
+        const T a3 = row0 + 3U < rows_A ? in[row0 + 3U] : z;
+        if constexpr (common::isComplex<T>) {
             scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                out_1, out_2, out_3, incA_lo4, i,
-                in[idx], in[idx + 1U], in[idx + 2U], in[idx + 3U], sft);
-        }
-
-        for (; i < lda_lo4; i += blockDim.x) {
-            if (tail != 0u && i == rows4) {
-                const unsigned idx = i << 2;
-                const T z          = common::Tconst<T>::zero();
-
-                const ValT v0 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run(common::conj<T, CONJ>(in[idx]), sft);
-                const ValT v1 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run((tail >= 2U) ? common::conj<T, CONJ>(in[idx + 1U]) : z, sft);
-                const ValT v2 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run((tail >= 3U) ? common::conj<T, CONJ>(in[idx + 2U]) : z, sft);
-                const ValT v3 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run(z, sft);
-
-                mod::ModUnroll<NUM_MODULI, ValT>::run(out_1 + i, out_2 + i, out_3 + i, incA_lo4, v0, v1, v2, v3);
-            } else {
-                mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out_1 + i, out_2 + i, out_3 + i, incA_lo4);
-            }
-        }
-    } else {
-        Low4 *__restrict__ out = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
-
-        unsigned i = threadIdx.x;
-        for (; i < rows4; i += blockDim.x) {
-            const unsigned idx = i << 2;
-
+                out0, out1, incA_lo4, i, a0, a1, a2, a3, sft);
+        } else {
             scaling_colwise_store4_real<T, BACKEND, NUM_MODULI, CONJ>(
-                out, incA_lo4, i,
-                in[idx], in[idx + 1U], in[idx + 2U], in[idx + 3U], sft);
-        }
-
-        for (; i < lda_lo4; i += blockDim.x) {
-            if (tail != 0u && i == rows4) {
-                const unsigned idx = i << 2;
-                const T z          = common::Tconst<T>::zero();
-
-                const ValT v0 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run(in[idx], sft);
-                const ValT v1 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run((tail >= 2U) ? in[idx + 1U] : z, sft);
-                const ValT v2 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run((tail >= 3U) ? in[idx + 2U] : z, sft);
-                const ValT v3 = trunc_scalbn<true, T, BACKEND, NUM_MODULI>::run(z, sft);
-
-                mod::ModUnroll<NUM_MODULI, ValT>::run(out + i, incA_lo4, v0, v1, v2, v3);
-            } else {
-                mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out + i, incA_lo4);
-            }
+                out0, incA_lo4, i, a0, a1, a2, a3, sft);
         }
     }
 }
@@ -111,13 +78,12 @@ __device__ __forceinline__ void scaling_colwise_upper_device(
     if constexpr (common::isComplex<T>) {
         Low4 *__restrict__ out_1 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
         Low4 *__restrict__ out_2 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
-        Low4 *__restrict__ out_3 = reinterpret_cast<Low4 *>(A_lo.ptr2) + col_idx * lda_lo4;
 
         for (unsigned i = threadIdx.x; i < boundary_i; i += blockDim.x) {
             const unsigned row0 = i << 2;
 
             scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                out_1, out_2, out_3, incA_lo4, i,
+                out_1, out_2, incA_lo4, i,
                 in[row0], in[row0 + 1U], in[row0 + 2U], in[row0 + 3U], sft);
         }
 
@@ -130,7 +96,7 @@ __device__ __forceinline__ void scaling_colwise_upper_device(
             const T a3 = tri_col_value<true, T, DIAG>(in, row0 + 3U, col_idx, rows_A);
 
             scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                out_1, out_2, out_3, incA_lo4, boundary_i,
+                out_1, out_2, incA_lo4, boundary_i,
                 a0, a1, a2, a3, sft);
         }
 
@@ -187,13 +153,12 @@ __device__ __forceinline__ void scaling_colwise_lower_device(
     if constexpr (common::isComplex<T>) {
         Low4 *__restrict__ out_1 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
         Low4 *__restrict__ out_2 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
-        Low4 *__restrict__ out_3 = reinterpret_cast<Low4 *>(A_lo.ptr2) + col_idx * lda_lo4;
 
         for (unsigned i = dense_begin4 + threadIdx.x; i < tail4; i += blockDim.x) {
             const unsigned row0 = i << 2;
 
             scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                out_1, out_2, out_3, incA_lo4, i,
+                out_1, out_2, incA_lo4, i,
                 in[row0], in[row0 + 1U], in[row0 + 2U], in[row0 + 3U], sft);
         }
 
@@ -207,7 +172,7 @@ __device__ __forceinline__ void scaling_colwise_lower_device(
                 const T a3 = tri_col_value<false, T, DIAG>(in, row0 + 3U, col_idx, rows_A);
 
                 scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                    out_1, out_2, out_3, incA_lo4, first4,
+                    out_1, out_2, incA_lo4, first4,
                     a0, a1, a2, a3, sft);
             }
 
@@ -220,7 +185,7 @@ __device__ __forceinline__ void scaling_colwise_lower_device(
                 const T a3 = tri_col_value<false, T, DIAG>(in, row0 + 3U, col_idx, rows_A);
 
                 scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                    out_1, out_2, out_3, incA_lo4, tail4,
+                    out_1, out_2, incA_lo4, tail4,
                     a0, a1, a2, a3, sft);
             }
         }
@@ -289,55 +254,31 @@ __global__ void scaling_colwise_full_tiled_kernel(
 
     const T *const __restrict__ in = A + col_idx * lda;
 
+    if (row0 >= rows_A) {
+        Low4 *__restrict__ out0 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4 + r4;
+        if constexpr (common::isComplex<T>) {
+            Low4 *__restrict__ out1 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4 + r4;
+            mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out0, out1, incA_lo4);
+        } else {
+            mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out0, incA_lo4);
+        }
+        return;
+    }
+
+    // Share the expensive modular conversion between dense and tail groups.
+    const T z               = common::Tconst<T>::zero();
+    const T a0              = in[row0];
+    const T a1              = row0 + 1U < rows_A ? in[row0 + 1U] : z;
+    const T a2              = row0 + 2U < rows_A ? in[row0 + 2U] : z;
+    const T a3              = row0 + 3U < rows_A ? in[row0 + 3U] : z;
+    Low4 *__restrict__ out0 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
     if constexpr (common::isComplex<T>) {
-        Low4 *__restrict__ out_1 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
-        Low4 *__restrict__ out_2 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
-        Low4 *__restrict__ out_3 = reinterpret_cast<Low4 *>(A_lo.ptr2) + col_idx * lda_lo4;
-
-        if (row0 + 3U < rows_A) {
-            scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                out_1, out_2, out_3, incA_lo4, r4,
-                in[row0 + 0U], in[row0 + 1U], in[row0 + 2U], in[row0 + 3U], sft);
-
-        } else if (row0 < rows_A) {
-            const T z = common::Tconst<T>::zero();
-
-            scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-                out_1, out_2, out_3, incA_lo4, r4,
-                in[row0 + 0U],
-                (row0 + 1U < rows_A) ? in[row0 + 1U] : z,
-                (row0 + 2U < rows_A) ? in[row0 + 2U] : z,
-                z,
-                sft);
-
-        } else {
-            mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(
-                out_1 + r4, out_2 + r4, out_3 + r4, incA_lo4);
-        }
-
+        Low4 *__restrict__ out1 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
+        scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
+            out0, out1, incA_lo4, r4, a0, a1, a2, a3, sft);
     } else {
-        Low4 *__restrict__ out = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
-
-        if (row0 + 3U < rows_A) {
-            scaling_colwise_store4_real<T, BACKEND, NUM_MODULI, CONJ>(
-                out, incA_lo4, r4,
-                in[row0 + 0U], in[row0 + 1U], in[row0 + 2U], in[row0 + 3U], sft);
-
-        } else if (row0 < rows_A) {
-            const T z = common::Tconst<T>::zero();
-
-            scaling_colwise_store4_real<T, BACKEND, NUM_MODULI, CONJ>(
-                out, incA_lo4, r4,
-                in[row0 + 0U],
-                (row0 + 1U < rows_A) ? in[row0 + 1U] : z,
-                (row0 + 2U < rows_A) ? in[row0 + 2U] : z,
-                z,
-                sft);
-
-        } else {
-            mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(
-                out + r4, incA_lo4);
-        }
+        scaling_colwise_store4_real<T, BACKEND, NUM_MODULI, CONJ>(
+            out0, incA_lo4, r4, a0, a1, a2, a3, sft);
     }
 }
 
@@ -372,10 +313,9 @@ __global__ void scaling_colwise_full_tiled_aligned_kernel(
     if constexpr (common::isComplex<T>) {
         Low4 *__restrict__ out_1 = reinterpret_cast<Low4 *>(A_lo.ptr0) + col_idx * lda_lo4;
         Low4 *__restrict__ out_2 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
-        Low4 *__restrict__ out_3 = reinterpret_cast<Low4 *>(A_lo.ptr2) + col_idx * lda_lo4;
 
         scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-            out_1, out_2, out_3, incA_lo4, r4,
+            out_1, out_2, incA_lo4, r4,
             in[row0 + 0U], in[row0 + 1U], in[row0 + 2U], in[row0 + 3U], sft);
 
     } else {
@@ -487,10 +427,9 @@ __global__ void scaling_colwise_tri_tiled_kernel(
     if constexpr (common::isComplex<T>) {
         Low4 *__restrict__ out_1 = reinterpret_cast<Low4 *>(A_lo.ptr0) + size_t(col_idx) * lda_lo4;
         Low4 *__restrict__ out_2 = reinterpret_cast<Low4 *>(A_lo.ptr1) + size_t(col_idx) * lda_lo4;
-        Low4 *__restrict__ out_3 = reinterpret_cast<Low4 *>(A_lo.ptr2) + size_t(col_idx) * lda_lo4;
 
         scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
-            out_1, out_2, out_3, incA_lo4, r4,
+            out_1, out_2, incA_lo4, r4,
             a0, a1, a2, a3, sft);
 
     } else {

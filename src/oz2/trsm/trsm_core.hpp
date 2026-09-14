@@ -21,6 +21,8 @@ inline std::vector<double> trsm_core(
 ) {
     static_assert(std::is_same_v<TA, TB>, "trsm requires std::is_same_v<TA, TB>.");
 
+    if (work != nullptr && (m == 0 || n == 0)) return std::vector<double>(4, 0.0);
+
     if (uplo != CUBLAS_FILL_MODE_LOWER && uplo != CUBLAS_FILL_MODE_UPPER) {
         assert(false && "TRSM requires uplo = LOWER or UPPER.");
         return std::vector<double>(4, 0.0);

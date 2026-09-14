@@ -6,7 +6,8 @@ namespace gemmul8::undo_scaling {
 template <typename T, typename TAlpha, typename TBeta,
           Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
-          bool isTRTRMM         = false>
+          bool isTRTRMM         = false,
+          bool HERMITIAN        = false>
 void undo_scaling(
     const cudaStream_t stream,
     const unsigned m, const unsigned n,

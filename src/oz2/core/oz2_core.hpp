@@ -7,6 +7,7 @@
 #include "matmult.hpp"
 #include "scaling.hpp"
 #include "helper_matmult.hpp"
+#include "worksize.hpp"
 
 namespace gemmul8::oz2::core {
 
@@ -68,13 +69,14 @@ inline std::vector<double> oz2_core(
     // Set workspace
     constexpr common::MatMulKind KIND               = matmul_kind<FUNC, STRUCT_A, STRUCT_B, UPLO_C>();
     constexpr bool use_pointer_arrays               = common::isCUDA && (BACKEND == Backend::FP8) && (KIND == common::MatMulKind::Gemm);
-    constexpr unsigned matmul_per_moduli            = COMPLEX ? 3u : 1u;
+    constexpr unsigned matmul_per_moduli            = COMPLEX ? 2u : 1u;
     constexpr unsigned num_C_hi                     = (BACKEND == Backend::INT8) ? 1u : 3u;
-    constexpr unsigned num_mat                      = common::table::num_mat_v<BACKEND, NUM_MODULI>;
-    constexpr unsigned pointer_products_per_modulus = (use_pointer_arrays) ? ((COMPLEX) ? 9u : 3u) : 0u;
-    const size_t pointer_array_bytes                = (use_pointer_arrays)
-                                                          ? common::padding(size_t(3 * pointer_products_per_modulus * NUM_MODULI) * sizeof(void *))
-                                                          : 0u;
+    constexpr unsigned num_mat                      = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX>;
+    constexpr unsigned pointer_products_per_modulus = (use_pointer_arrays) ? ((COMPLEX) ? 6u : 3u) : 0u;
+    const size_t pointer_array_bytes =
+        (use_pointer_arrays)
+            ? common::padding(size_t(3 * pointer_products_per_modulus * NUM_MODULI) * sizeof(void *))
+            : 0u;
 
     const size_t offsetA        = sizeA * num_mat * matmul_per_moduli;
     const size_t offsetB        = sizeB * num_mat * matmul_per_moduli;
@@ -90,9 +92,9 @@ inline std::vector<double> oz2_core(
     void *const workA_aligned = (workA) ? common::align(workA) : nullptr;
     void *const workB_aligned = (workB) ? common::align(workB) : nullptr;
 
-    const size_t incA_lo      = offsetA + ((enable_skip_scalA_eff && !fastmode) ? (sizeA * matmul_per_moduli) : 0u);
+    const size_t incA_lo      = offsetA + ((enable_skip_scalA_eff && !fastmode) ? (sizeA * (COMPLEX ? 3u : 1u)) : 0u);
     const size_t incsftA      = size_vecA * ((enable_skip_scalA_eff && !fastmode) ? 2u : 1u);
-    const size_t incB_lo      = offsetB + ((enable_skip_scalB_eff && !fastmode) ? (sizeB * matmul_per_moduli) : 0u);
+    const size_t incB_lo      = offsetB + ((enable_skip_scalB_eff && !fastmode) ? (sizeB * (COMPLEX ? 3u : 1u)) : 0u);
     const size_t incsftB      = size_vecB * ((enable_skip_scalB_eff && !fastmode) ? 2u : 1u);
     LowT *const A_lo_base     = reinterpret_cast<LowT *>((workA) ? workA_aligned : work_aligned);
     int16_t *const sftA       = reinterpret_cast<int16_t *>(A_lo_base + incA_lo);
@@ -121,10 +123,11 @@ inline std::vector<double> oz2_core(
     // A,B --(scaling)--> Aint,Bint --(mod)--> A_lo,B_lo
     phase_timer.record(phase_timer.scaling_begin(), stream);
 
-    auto A_lo = common::make_matptr<LowT, COMPLEX>(A_lo_base, sizeA * num_mat);
-    auto B_lo = common::make_matptr<LowT, COMPLEX>(B_lo_base, sizeB * num_mat);
+    auto A_lo = common::make_matptr<LowT, COMPLEX, matmul_per_moduli>(A_lo_base, sizeA * num_mat);
+    auto B_lo = common::make_matptr<LowT, COMPLEX, matmul_per_moduli>(B_lo_base, sizeB * num_mat);
 
-    if (fastmode) {
+    const bool norm_fallback = !fastmode && scaling::accu::norm_requires_fast_scaling<BACKEND, COMPLEX>(k);
+    if (fastmode || norm_fallback) {
 
         scaling_fast<TA, TB, BACKEND, NUM_MODULI, STRUCT_A, STRUCT_B, UPLO_A, UPLO_B, DIAG_A, DIAG_B>(
             stream, op_A, op_B, m, n, k,
@@ -135,7 +138,7 @@ inline std::vector<double> oz2_core(
 
         auto A_lo_high   = common::make_matptr<LowT, COMPLEX>(A_lo_base + ((enable_skip_scalA_eff && !fastmode) ? offsetA : 0u), sizeA);
         auto B_lo_high   = common::make_matptr<LowT, COMPLEX>(B_lo_base + ((enable_skip_scalB_eff && !fastmode) ? offsetB : 0u), sizeB);
-        auto C_hi        = common::make_matptr<HiT, COMPLEX>(reinterpret_cast<HiT *>(C_work_base), sizeC * num_C_hi);
+        auto C_hi        = common::make_matptr<HiT, COMPLEX>(reinterpret_cast<HiT *>(C_work_base), sizeC);
         handle.workspace = static_cast<void *>(C_work_base + sizeC_Hi);
 
         scaling_accu<FUNC, TA, TB, BACKEND, NUM_MODULI, STRUCT_A, STRUCT_B, UPLO_A, UPLO_B, DIAG_A, DIAG_B, UPLO_C>(
@@ -152,8 +155,8 @@ inline std::vector<double> oz2_core(
         unsigned bcnt = batch_count<NUM_MODULI>(
             handle.arch, n_work, i, sizeC_Mid, sizeC_Hi,
             lwork_blas, worksizeC, pointer_products_per_modulus);
-        bcnt = limit_batch_for_k<BACKEND>(i, bcnt, k_pad);
-        configure_matprod_k_blocking<BACKEND>(handle, i, k_pad);
+        bcnt = limit_batch_for_k<BACKEND, COMPLEX>(i, bcnt, k_pad);
+        configure_matprod_k_blocking<BACKEND, COMPLEX>(handle, i, k_pad);
 
         int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
 
@@ -169,7 +172,7 @@ inline std::vector<double> oz2_core(
         const size_t gap       = std::max<size_t>(ptr_gap + lwork_blas, mid_bytes);
 
         HiT *const C_hi  = reinterpret_cast<HiT *>(base + gap);
-        auto C_hi_matptr = common::make_matptr<HiT, COMPLEX>(C_hi, sizeC * num_C_hi);
+        auto C_hi_matptr = common::make_matptr<HiT, COMPLEX, matmul_per_moduli>(C_hi, sizeC * num_C_hi);
 
         handle.Aarray    = Aarray;
         handle.Barray    = Barray;
@@ -261,18 +264,17 @@ inline std::vector<double> oz2_core_rk(
     const bool skipA       = skip_scalA_eff && enable_skip_scalA_eff;
 
     // Set workspace
-    constexpr unsigned matmul_per_moduli = COMPLEX ? 3u : 1u;
+    constexpr unsigned matmul_per_moduli = COMPLEX ? 2u : 1u;
     constexpr unsigned num_C_hi          = (BACKEND == Backend::INT8) ? 1u : 3u;
-    constexpr unsigned num_mat           = common::table::num_mat_v<BACKEND, NUM_MODULI>;
+    constexpr unsigned num_mat           = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX>;
 
-    const size_t offsetA        = sizeA * num_mat * matmul_per_moduli;
-    constexpr size_t lwork_blas = size_t(32) << 20; // 32 MiB
-    const size_t sizeC_Mid      = sizeof(MidT) * sizeC;
-    const size_t worksizeC_1    = (NUM_MODULI - 1) * sizeC_Mid;
-    const size_t worksizeC_2    = std::max<size_t>(lwork_blas, sizeC_Mid);
-    const size_t incC_hi        = matmul_per_moduli * num_C_hi * sizeC;
-    const size_t sizeC_Hi       = sizeof(HiT) * incC_hi;
-    const size_t worksizeC      = worksizeC_1 + worksizeC_2 + sizeC_Hi;
+    const size_t offsetA             = sizeA * num_mat * matmul_per_moduli;
+    constexpr size_t lwork_blas      = size_t(32) << 20; // 32 MiB
+    const size_t sizeC_Mid           = sizeof(MidT) * sizeC;
+    constexpr unsigned product_parts = (FUNC == Func::herk) ? 1u : matmul_per_moduli;
+    const size_t incC_hi             = product_parts * num_C_hi * sizeC;
+    const size_t sizeC_Hi            = sizeof(HiT) * incC_hi;
+    const size_t worksizeC           = rankk_worksize_C<COMPLEX, BACKEND, FUNC == Func::herk>(sizeC, NUM_MODULI, fastmode);
 
     void *const work_aligned  = common::align(work);
     void *const workA_aligned = (workA) ? common::align(workA) : nullptr;
@@ -298,18 +300,20 @@ inline std::vector<double> oz2_core_rk(
     // A,B --(scaling)--> Aint,Bint --(mod)--> A_lo,B_lo
     phase_timer.record(phase_timer.scaling_begin(), stream);
 
-    auto A_lo = common::make_matptr<LowT, COMPLEX>(A_lo_base, sizeA * num_mat);
+    auto A_lo = common::make_matptr<LowT, COMPLEX, matmul_per_moduli>(A_lo_base, sizeA * num_mat);
 
-    if (fastmode) {
+    const bool norm_fallback = !fastmode && scaling::accu::norm_requires_fast_scaling<BACKEND, COMPLEX>(k);
+    if (fastmode || norm_fallback) {
 
         scaling_fast_rk<FUNC, TA, BACKEND, NUM_MODULI>(
             stream, op_A, n, k, A, lda, A_lo, lda_lo, sizeA, sftA, skipA);
 
     } else {
 
-        auto A_lo_high   = common::make_matptr<LowT, COMPLEX>(A_lo_base, sizeA);
-        auto C_hi        = common::make_matptr<HiT, COMPLEX>(reinterpret_cast<HiT *>(C_work_base), sizeC * num_C_hi);
-        handle.workspace = static_cast<void *>(C_work_base + sizeC_Hi);
+        auto A_lo_high                 = common::make_matptr<LowT, COMPLEX>(A_lo_base, sizeA);
+        auto C_hi                      = common::make_matptr<HiT, COMPLEX>(reinterpret_cast<HiT *>(C_work_base), sizeC);
+        constexpr unsigned norm_planes = COMPLEX ? ((BACKEND == Backend::INT8) ? 2u : 3u) : 1u;
+        handle.workspace               = static_cast<void *>(C_work_base + sizeof(HiT) * sizeC * norm_planes);
 
         scaling_accu_rk<FUNC, TA, BACKEND, NUM_MODULI, UPLO_C>(
             stream, handle, op_A, n, k, A, lda, A_lo, A_lo_high, lda_lo, sizeA, sftA, skipA, C_hi, ldc_hi);
@@ -321,16 +325,19 @@ inline std::vector<double> oz2_core_rk(
 
         unsigned bcnt = batch_count<NUM_MODULI>(
             handle.arch, n, i, sizeC_Mid, sizeC_Hi, lwork_blas, worksizeC, 0u);
-        bcnt = limit_batch_for_k<BACKEND>(i, bcnt, k_pad);
-        configure_matprod_k_blocking<BACKEND>(handle, i, k_pad);
+        bcnt = limit_batch_for_k<BACKEND, COMPLEX>(i, bcnt, k_pad);
+        configure_matprod_k_blocking<BACKEND, COMPLEX>(handle, i, k_pad);
 
         const size_t mid_bytes = bcnt * sizeC_Mid;
         const size_t gap       = std::max<size_t>(lwork_blas, mid_bytes);
 
         int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
         HiT *const C_hi    = reinterpret_cast<HiT *>(base + gap);
-        auto C_hi_matptr   = common::make_matptr<HiT, COMPLEX>(C_hi, sizeC * num_C_hi);
-        handle.workspace   = static_cast<void *>(base);
+        auto C_hi_matptr   = common::make_matptr<HiT, COMPLEX, matmul_per_moduli>(C_hi, sizeC * num_C_hi);
+        if constexpr (FUNC == Func::herk) {
+            C_hi_matptr.ptr1 = nullptr;
+        }
+        handle.workspace = static_cast<void *>(base);
 
         // Error-free matrix multiplication C_hi := A_lo[i]*B_lo[i]
         error_free_matmult_rk<FUNC, BACKEND, COMPLEX, UPLO_C>(

@@ -103,7 +103,6 @@ inline T conjugate_host(T x) noexcept {
     return x;
 }
 
-
 template <typename T, bool NEGATIVE>
 struct UnitScalar {
     T host    = unit_scalar_value<T, NEGATIVE>();
@@ -185,34 +184,69 @@ struct RealToComplexScalar {
     }
 };
 
-template <typename T, typename BetaScalar>
+template <typename T, typename BetaScalar,
+          cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL, bool HERMITIAN = false>
 __global__ void scale_block_kernel(unsigned m, unsigned n, BetaScalar beta, T *C, size_t ldc) {
     const unsigned row = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned col = blockIdx.y * blockDim.y + threadIdx.y;
     if (row >= m || col >= n) return;
-    C[col * ldc + row] = common::Tmul<undo_scaling::scalar_t<BetaScalar>, T>(beta.get(), C[col * ldc + row]);
+    if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
+        if (row > col) return;
+    }
+    if constexpr (UPLO == CUBLAS_FILL_MODE_LOWER) {
+        if (row < col) return;
+    }
+    const size_t idx = col * ldc + row;
+    const auto b     = beta.get();
+    if constexpr (HERMITIAN) {
+        static_assert(common::isComplex<T>);
+        if (row == col) {
+            using U = common::underlying_t<T>;
+            // beta is real; beta=0 must not read uninitialized C.
+            const U value = undo_scaling::is_zero(b) ? U(0) : b * C[idx].x;
+            C[idx]        = T{value, U(0)};
+            return;
+        }
+    }
+    C[idx] = undo_scaling::scale_or_zero<T>(b, C + idx);
 }
 
-template <typename T>
+template <typename T, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __global__ void zero_block_kernel(unsigned m, unsigned n, T *C, size_t ldc) {
     const unsigned row = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned col = blockIdx.y * blockDim.y + threadIdx.y;
-    if (row < m && col < n) C[col * ldc + row] = common::Tconst<T>::zero();
+    if (row >= m || col >= n) return;
+    if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
+        if (row > col) return;
+    }
+    if constexpr (UPLO == CUBLAS_FILL_MODE_LOWER) {
+        if (row < col) return;
+    }
+    C[col * ldc + row] = common::Tconst<T>::zero();
 }
 
-template <typename T>
-inline void scale_block(cudaStream_t stream, size_t m, size_t n, const T *beta, T *C, size_t ldc) {
+template <typename T, typename TBeta = T,
+          cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL, bool HERMITIAN = false>
+inline void scale_block(cudaStream_t stream, size_t m, size_t n, const TBeta *beta, T *C, size_t ldc) {
+    if (m == 0 || n == 0) return;
     constexpr dim3 threads(32, 8);
     const dim3 grid((m + threads.x - 1) / threads.x, (n + threads.y - 1) / threads.y);
 
     if (!beta) {
-        zero_block_kernel<T><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), C, ldc);
+        zero_block_kernel<T, UPLO><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), C, ldc);
     } else if (undo_scaling::is_device_pointer(beta)) {
-        undo_scaling::DeviceScalar<T> b(beta);
-        scale_block_kernel<T><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
+        undo_scaling::DeviceScalar<TBeta> b(beta);
+        scale_block_kernel<T, decltype(b), UPLO, HERMITIAN><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
     } else {
-        undo_scaling::HostScalar<T> b(*beta);
-        scale_block_kernel<T><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
+        if (undo_scaling::is_zero_h(*beta)) {
+            zero_block_kernel<T, UPLO><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), C, ldc);
+            return;
+        }
+        if constexpr (!HERMITIAN) {
+            if (undo_scaling::is_one_h(*beta)) return;
+        }
+        undo_scaling::HostScalar<TBeta> b(*beta);
+        scale_block_kernel<T, decltype(b), UPLO, HERMITIAN><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
     }
 }
 
@@ -249,8 +283,13 @@ inline void for_each_structured_tile(
     size_t s, size_t f, size_t sB, size_t fB,
     Diagonal &&diagonal, OffDiagonal &&offdiag //
 ) {
+    if (s == 0 || f == 0) return;
+    assert(sB != 0 && fB != 0);
+    const size_t num_s_blocks = 1 + (s - 1) / sB;
     if (side == CUBLAS_SIDE_LEFT) {
-        for (size_t i = 0; i < s; i += sB) {
+        const bool reverse = TRIANGULAR && effective == CUBLAS_FILL_MODE_LOWER;
+        for (size_t bi = 0; bi < num_s_blocks; ++bi) {
+            const size_t i  = (reverse ? num_s_blocks - 1 - bi : bi) * sB;
             const size_t si = std::min(sB, s - i);
             for (size_t j = 0; j < f; j += fB) {
                 const size_t fj = std::min<size_t>(fB, f - j);
@@ -270,7 +309,9 @@ inline void for_each_structured_tile(
             }
         }
     } else {
-        for (size_t j = 0; j < s; j += sB) {
+        const bool reverse = TRIANGULAR && effective == CUBLAS_FILL_MODE_UPPER;
+        for (size_t bj = 0; bj < num_s_blocks; ++bj) {
+            const size_t j  = (reverse ? num_s_blocks - 1 - bj : bj) * sB;
             const size_t sj = std::min(sB, s - j);
             for (size_t i = 0; i < f; i += fB) {
                 const size_t fi = std::min<size_t>(fB, f - i);

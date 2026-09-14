@@ -1,5 +1,6 @@
 #pragma once
 #include "accumulation.hpp"
+#include "integer_accumulation.hpp"
 
 namespace gemmul8::undo_scaling {
 
@@ -105,6 +106,10 @@ __device__ __forceinline__ T reconstruct_from_crt(
 
         } else {
 
+            if constexpr (use_integer_crt_high) {
+                return final_reduction_real<T>(accumulate_real_integer_high<BACKEND, NUM_MODULI>(C_mid, incC_mid), P, invP);
+            }
+
             // double C with large NUM_MODULI
             double2 acc = init_real_double2<BACKEND, NUM_MODULI>(C_mid, incC_mid);
             accumulate_real_double2<BACKEND, NUM_MODULI>(acc, C_mid, incC_mid);
@@ -113,12 +118,16 @@ __device__ __forceinline__ T reconstruct_from_crt(
     } else {
         if constexpr (std::is_same_v<TP, double>) {
 
-            // cuDoubleComplex C with small NUMMODULI or cuFloatComplex C
+            // cuDoubleComplex C with small NUM_MODULI or cuFloatComplex C
             double2 acc = init_complex_double<BACKEND, NUM_MODULI>(C_mid, incC_mid);
             accumulate_complex_double<BACKEND, NUM_MODULI>(acc, C_mid, incC_mid);
             return final_reduction_complex<T>(acc, P, invP);
 
         } else {
+
+            if constexpr (use_integer_crt_high) {
+                return final_reduction_complex<T>(accumulate_complex_integer_high<BACKEND, NUM_MODULI>(C_mid, incC_mid), P, invP);
+            }
 
             // cuDoubleComplex C with large NUM_MODULI
             common::double2x2_t acc = init_complex_double2<BACKEND, NUM_MODULI>(C_mid, incC_mid);

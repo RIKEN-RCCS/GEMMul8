@@ -110,7 +110,7 @@ void check_time(
     cublasOperation_t trans,
     const bool run_Ozaki2_I8,
     const bool run_Ozaki2_F8,
-    const bool run_Ozaki1_I8,
+    const bool run_cuBLAS_FP64_emu,
     const bool is_square //
 ) {
     if (trans == CUBLAS_OP_C) {
@@ -207,7 +207,7 @@ void check_time(
 
             bool run_oz2_i8 = run_Ozaki2_I8;
             bool run_oz2_f8 = run_Ozaki2_F8;
-            bool run_oz1_i8 = run_Ozaki1_I8 && use_ozaki1;
+            bool run_oz1_i8 = run_cuBLAS_FP64_emu && use_ozaki1;
 
             const double comp_cost            = getFuncCost<func>(n, n, k, testTraits<T>::is_complex);
             const size_t size_A               = rowsA * colsA * sizeof(T);
@@ -247,6 +247,7 @@ void check_time(
             makemat::randmat<T>(rowsA, colsA, A, phi, seedA, stream);
             bool run_native = false;
 
+#if GEMMUL8_BUILD_INT8
             //-------------------------------
             // fast mode int8
             //-------------------------------
@@ -332,6 +333,9 @@ void check_time(
                     free_async_if_needed_void(work_emu, stream);
                 }
             }
+#endif
+
+#if GEMMUL8_BUILD_FP8
 
             //-------------------------------
             // fast mode fp8
@@ -418,6 +422,7 @@ void check_time(
                     free_async_if_needed_void(work_emu, stream);
                 }
             }
+#endif
 
             //-------------------------------
             // cuBLAS Ozaki-I
@@ -448,7 +453,7 @@ void check_time(
                         std::to_string(phi) + "," +
                         std::to_string(n) + "," +
                         std::to_string(k) + "," +
-                        std::string("OS1-") + std::to_string(num_slice);
+                        std::string("cublas_FP64emu-") + std::to_string(mantissaBitCount);
 
                     constexpr bool isOzaki2 = false;
 

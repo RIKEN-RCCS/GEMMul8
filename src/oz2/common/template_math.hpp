@@ -259,6 +259,12 @@ template <typename T, int32_t width = 32> __device__ __forceinline__ T inner_war
     return amax;
 }
 
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)) || (defined(__HIPCC__) && defined(HIP_VERSION) && (HIP_VERSION >= 70000000))
+template <> __device__ __forceinline__ int32_t inner_warp_max<int32_t, 32>(int32_t amax) {
+    return __reduce_max_sync(0xFFFFFFFFu, amax);
+}
+#endif
+
 //------------------------------
 // Warp reduction (sum in round-up mode)
 //------------------------------

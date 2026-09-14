@@ -17,7 +17,8 @@ template void mod_reduce_matprod<BE>(
     const int,
     const int,
     const size_t,
-    const unsigned //
+    const unsigned,
+    const bool //
 );
 
 template void mod_reduce_matprod_strided<BE>(
@@ -28,7 +29,8 @@ template void mod_reduce_matprod_strided<BE>(
     const size_t,
     const int64_t,
     const int,
-    const unsigned //
+    const unsigned,
+    const bool //
 );
 
 template void mod_reduce_matprod_pointer_and_advance<BE>(
@@ -41,7 +43,8 @@ template void mod_reduce_matprod_pointer_and_advance<BE>(
     const size_t,
     const int,
     const int,
-    const unsigned //
+    const unsigned,
+    const bool //
 );
 
 } // namespace gemmul8::mod

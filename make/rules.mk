@@ -13,6 +13,8 @@ info:
 	@{ \
 	    echo ""; \
 	    echo "BACKEND      : $(BACKEND)"; \
+	    echo "OPS          : $(BUILD_OPS)"; \
+	    echo "OZ2_BACKENDS : $(BUILD_OZ2_BACKENDS)"; \
 	    if [ "$(BACKEND)" = "cuda" ]; then \
 	        echo "CUDA_PATH    : $(CUDA_PATH)"; \
 	    fi; \
@@ -93,7 +95,7 @@ compile_objects_banner: info
 ifeq ($(filter clean,$(MAKECMDGOALS)),)
 
 define COMPILE_CU
-$(call obj_from_src,$(1)): $(1) $(HEADER) | compile_objects_banner
+$(call obj_from_src,$(1)): $(1) $(HEADER) $(BUILD_MAKEFILES) | compile_objects_banner
 	@mkdir -p $$(dir $$@)
 	@echo "$$(COMPILER)  -c $$<  -o $$@"
 	@$$(COMPILER) $$(FLAGS_PIC) $$(ARCH) -c $$< -o $$@

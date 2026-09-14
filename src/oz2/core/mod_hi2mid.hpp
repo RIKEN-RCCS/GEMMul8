@@ -25,12 +25,12 @@ inline void mod_hi2mid(
         if (op_A == CUBLAS_OP_N) {
             for (unsigned b = 0; b < bcnt; ++b) {
                 mod::mod_hi2mid_AHA<BACKEND, UPLO_C, true>(stream, idx + b, ldc, n, C_hi, C_mid);
-                C_hi.shift(incC_hi);
+                C_hi.ptr0 += incC_hi;
             }
         } else {
             for (unsigned b = 0; b < bcnt; ++b) {
                 mod::mod_hi2mid_AHA<BACKEND, UPLO_C, false>(stream, idx + b, ldc, n, C_hi, C_mid);
-                C_hi.shift(incC_hi);
+                C_hi.ptr0 += incC_hi;
             }
         }
 

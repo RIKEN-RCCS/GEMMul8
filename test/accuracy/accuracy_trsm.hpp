@@ -14,7 +14,7 @@ void check_accuracy(
     cublasDiagType_t diag,
     const bool run_Ozaki2_I8,
     const bool run_Ozaki2_F8,
-    const bool run_Ozaki1_I8,
+    const bool run_cuBLAS_FP64_emu,
     const bool is_square = false);
 
 } // namespace bench::accuracy::trsm

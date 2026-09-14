@@ -10,7 +10,8 @@ void mod_reduce_matprod(
     const int m,
     const int n,
     const size_t ldc,
-    const unsigned modulus_idx //
+    const unsigned modulus_idx,
+    const bool complex_moduli = false //
 );
 
 template <Backend BACKEND>
@@ -22,7 +23,8 @@ void mod_reduce_matprod_strided(
     const size_t ldc,
     const int64_t strideC,
     const int batchCount,
-    const unsigned modulus_idx //
+    const unsigned modulus_idx,
+    const bool complex_moduli = false //
 );
 
 template <Backend BACKEND>
@@ -36,7 +38,8 @@ void mod_reduce_matprod_pointer_and_advance(
     const size_t ldc,
     const int batchCount,
     const int k_advance,
-    const unsigned modulus_idx //
+    const unsigned modulus_idx,
+    const bool complex_moduli = false //
 );
 
 } // namespace gemmul8::mod

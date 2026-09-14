@@ -193,10 +193,10 @@ struct trunc_scalbn<false, T, BACKEND, NUM_MODULI,
     __device__ __forceinline__ static T cast(T in) { return common::Ttrunc<T>(in); }
 };
 
-// NUM_MODULI <= common::threshold<BACKEND>::S, complex
+// NUM_MODULI <= common::threshold<BACKEND, true>::S, complex
 template <typename T, Backend BACKEND, unsigned NUM_MODULI>
 struct trunc_scalbn<true, T, BACKEND, NUM_MODULI,
-                    std::enable_if_t<(NUM_MODULI <= common::threshold<BACKEND>::S &&
+                    std::enable_if_t<(NUM_MODULI <= common::threshold<BACKEND, true>::S &&
                                       common::isComplex<T>)>> {
     __device__ __forceinline__ static int2 run(T in, int32_t sft) {
         int2 r;
@@ -208,7 +208,7 @@ struct trunc_scalbn<true, T, BACKEND, NUM_MODULI,
 };
 template <typename T, Backend BACKEND, unsigned NUM_MODULI>
 struct trunc_scalbn<false, T, BACKEND, NUM_MODULI,
-                    std::enable_if_t<(NUM_MODULI <= common::threshold<BACKEND>::S &&
+                    std::enable_if_t<(NUM_MODULI <= common::threshold<BACKEND, true>::S &&
                                       common::isComplex<T>)>> {
     __device__ __forceinline__ static T run(T in, int32_t sft) { return common::Tscalbn<T>(in, sft); }
     __device__ __forceinline__ static int2 cast(T in) {
@@ -219,11 +219,11 @@ struct trunc_scalbn<false, T, BACKEND, NUM_MODULI,
     }
 };
 
-// common::threshold<BACKEND>::S < NUM_MODULI <= common::threshold<BACKEND>::M, complex
+// common::threshold<BACKEND, true>::S < NUM_MODULI <= common::threshold<BACKEND, true>::M, complex
 template <typename T, Backend BACKEND, unsigned NUM_MODULI>
 struct trunc_scalbn<true, T, BACKEND, NUM_MODULI,
-                    std::enable_if_t<(common::threshold<BACKEND>::S < NUM_MODULI &&
-                                      NUM_MODULI <= common::threshold<BACKEND>::M &&
+                    std::enable_if_t<(common::threshold<BACKEND, true>::S < NUM_MODULI &&
+                                      NUM_MODULI <= common::threshold<BACKEND, true>::M &&
                                       common::isComplex<T>)>> {
     __device__ __forceinline__ static common::mant2_t run(T in, int32_t sft) {
         common::mant2_t r;
@@ -235,8 +235,8 @@ struct trunc_scalbn<true, T, BACKEND, NUM_MODULI,
 };
 template <typename T, Backend BACKEND, unsigned NUM_MODULI>
 struct trunc_scalbn<false, T, BACKEND, NUM_MODULI,
-                    std::enable_if_t<(common::threshold<BACKEND>::S < NUM_MODULI &&
-                                      NUM_MODULI <= common::threshold<BACKEND>::M &&
+                    std::enable_if_t<(common::threshold<BACKEND, true>::S < NUM_MODULI &&
+                                      NUM_MODULI <= common::threshold<BACKEND, true>::M &&
                                       common::isComplex<T>)>> {
     __device__ __forceinline__ static T run(T in, int32_t sft) { return common::Tscalbn<T>(in, sft); }
     __device__ __forceinline__ static common::mant2_t cast(T in) {
@@ -247,10 +247,10 @@ struct trunc_scalbn<false, T, BACKEND, NUM_MODULI,
     }
 };
 
-// common::threshold<BACKEND>::M < NUM_MODULI, complex
+// common::threshold<BACKEND, true>::M < NUM_MODULI, complex
 template <typename T, Backend BACKEND, unsigned NUM_MODULI>
 struct trunc_scalbn<true, T, BACKEND, NUM_MODULI,
-                    std::enable_if_t<(common::threshold<BACKEND>::M < NUM_MODULI &&
+                    std::enable_if_t<(common::threshold<BACKEND, true>::M < NUM_MODULI &&
                                       common::isComplex<T>)>> {
     __device__ __forceinline__ static T run(T in, int32_t sft) {
         T r;
@@ -262,7 +262,7 @@ struct trunc_scalbn<true, T, BACKEND, NUM_MODULI,
 };
 template <typename T, Backend BACKEND, unsigned NUM_MODULI>
 struct trunc_scalbn<false, T, BACKEND, NUM_MODULI,
-                    std::enable_if_t<(common::threshold<BACKEND>::M < NUM_MODULI &&
+                    std::enable_if_t<(common::threshold<BACKEND, true>::M < NUM_MODULI &&
                                       common::isComplex<T>)>> {
     __device__ __forceinline__ static T run(T in, int32_t sft) { return common::Tscalbn<T>(in, sft); }
     __device__ __forceinline__ static T cast(T in) {

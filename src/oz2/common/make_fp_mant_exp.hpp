@@ -74,14 +74,13 @@ __device__ __forceinline__ fp64_mant_exp make_fp64_mant_exp<fp64_mant_exp>(doubl
         const uint64_t mag = (sh >= 0) ? (sig << sh) : (sig >> (-sh));
         mant               = (int64_t)mag;
     }
-    
+
     const bool is_hi = (out_exp >= 32);
     d.mant           = common::mant_t(sign ? -mant : mant);
     d.exp            = common::exp_t(uint32_t(1u << (out_exp - (is_hi ? 32 : 0))), is_hi);
 
     return d;
 }
-
 
 __device__ __forceinline__ fp32_mant_exp2 make_fp32_mant_exp2(cuFloatComplex v) {
     fp32_mant_exp2 d;
@@ -98,6 +97,25 @@ __device__ __forceinline__ fp64_mant_exp2 make_fp64_mant_exp2<fp64_mant_exp2>(cu
     fp64_mant_exp2 d;
     d.x = make_fp64_mant_exp<fp64_mant_exp>(v.x);
     d.y = make_fp64_mant_exp<fp64_mant_exp>(v.y);
+    return d;
+}
+
+template <typename V>
+__device__ __forceinline__ V make_fp32_mant_exp_as(float v) {
+    if constexpr (std::is_same_v<V, fp64_mant_exp>) {
+        return make_fp64_mant_exp<fp64_mant_exp>(static_cast<double>(v));
+    } else {
+        static_assert(std::is_same_v<V, fp32_mant_exp>);
+        return make_fp32_mant_exp(v);
+    }
+}
+
+template <typename V>
+__device__ __forceinline__ V make_fp32_mant_exp2_as(cuFloatComplex v) {
+    V d;
+    using Part = decltype(d.x);
+    d.x        = make_fp32_mant_exp_as<Part>(v.x);
+    d.y        = make_fp32_mant_exp_as<Part>(v.y);
     return d;
 }
 

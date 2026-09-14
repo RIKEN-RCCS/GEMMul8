@@ -28,6 +28,13 @@ std::vector<double> run(
     bool skip_scalA, bool skip_scalB,
     cudaStream_t stream //
 ) {
+    if (n == 0) return std::vector<double>(4, 0.0);
+    if (k == 0) {
+        core::blocking::scale_block<TC, TC, UPLO_C, false>(
+            stream, n, n, beta, C, ldc);
+        return std::vector<double>(4, 0.0);
+    }
+
     const bool memory_saving_mode = handle.config.memory_saving;
     const size_t limit            = handle.config.max_worksize;
     const bool memory_saving      = memory_saving_mode && limit > 0;

@@ -11,6 +11,7 @@ inline int block_size_setting(int arch, cublasFillMode_t uplo_A, cublasFillMode_
         case 90: return 2048;
         case 100: return 2048;
         case 103: return 2048;
+        case 107: return 2048;
         default: return 1024;
         }
     } else if constexpr (FUNC == Func::trmm) {
@@ -18,6 +19,7 @@ inline int block_size_setting(int arch, cublasFillMode_t uplo_A, cublasFillMode_
         case 90: return 2048;
         case 100: return 2048;
         case 103: return 2048;
+        case 107: return 2048;
         default: return 1024;
         }
     } else if constexpr (FUNC == Func::trtrmm) {
@@ -37,13 +39,18 @@ inline int block_size_setting(int arch, cublasFillMode_t uplo_A, cublasFillMode_
             if (uplo_A == CUBLAS_FILL_MODE_LOWER && uplo_B == CUBLAS_FILL_MODE_UPPER) return 3072;
             return 2048;
         }
+        case 107: {
+            if (uplo_A == CUBLAS_FILL_MODE_UPPER && uplo_B == CUBLAS_FILL_MODE_LOWER) return 3072;
+            if (uplo_A == CUBLAS_FILL_MODE_LOWER && uplo_B == CUBLAS_FILL_MODE_UPPER) return 3072;
+            return 2048;
+        }
         default: return 1024;
         }
     } else {
         // gemm, symm, syr2k, her2k, hemm, her2k, trsm
         switch (arch) {
         case 90: return 8192;
-        default: return 32768;
+        default: return 65536;
         }
     }
 }
@@ -158,6 +165,7 @@ struct Handle_t {
     int nB   = 0;
     std::unordered_map<LtMatmulKey, LtMatmulPlan, LtMatmulKeyHash> plan_cache;
 
+    bool modulus_complex      = false;
     bool matprod_k_blocking   = false;
     int matprod_k_block_first = 0;
     int matprod_k_block_next  = 0;
@@ -184,6 +192,7 @@ inline void set_handle(
     constexpr cublasOperation_t transa = CUBLAS_OP_T;
     constexpr cublasOperation_t transb = CUBLAS_OP_N;
 
+    h.modulus_complex      = false;
     h.matprod_k_blocking   = false;
     h.workspaceSizeInBytes = workspaceSizeInBytes;
 

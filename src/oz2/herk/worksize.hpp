@@ -12,7 +12,7 @@ inline size_t workSize(
 ) {
     static_assert(is_Complex, "herk requires complex input type.");
     if (workSizeB != nullptr) *workSizeB = 0;
-    return core::workSize_rk<is_Complex, BACKEND>(m, k, NUM_MODULI, workSizeA);
+    return core::workSize_rk<is_Complex, BACKEND, true>(m, k, NUM_MODULI, workSizeA, fastmode);
 }
 
 } // namespace gemmul8::oz2::herk

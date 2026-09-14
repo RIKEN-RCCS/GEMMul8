@@ -31,7 +31,7 @@ export PATH := $(CUDA_PATH)/bin:$(PATH)
 export LD_LIBRARY_PATH := $(CUDA_PATH)/lib64:$(LD_LIBRARY_PATH)
 
 COMPILER := nvcc
-FLAGS := -std=c++20 -O3 -diag-suppress 177 -Iinclude -Isrc -DGPU_ARCH=$(GPU_ARCH)
+FLAGS := -std=c++20 -O3 -diag-suppress 177 -diag-suppress 186 -Iinclude -Isrc -DGPU_ARCH=$(GPU_ARCH)
 LIBS := -lcublas -lcudart -lcublasLt -lcuda -lnvidia-ml -ldl
 ARCH := -gencode arch=compute_$(GPU_ARCH),code=sm_$(GPU_ARCH)
 FLAGS_PIC := $(FLAGS) -Xcompiler -fPIC

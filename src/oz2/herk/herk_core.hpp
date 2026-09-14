@@ -28,6 +28,13 @@ std::vector<double> run(
 ) {
     using U = common::underlying_t<TC>;
 
+    if (n == 0) return std::vector<double>(4, 0.0);
+    if (k == 0) {
+        core::blocking::scale_block<TC, common::underlying_t<TC>, UPLO_C, true>(
+            stream, n, n, beta, C, ldc);
+        return std::vector<double>(4, 0.0);
+    }
+
     const bool memory_saving_mode = handle.config.memory_saving;
     const size_t limit            = handle.config.max_worksize;
     const bool memory_saving      = memory_saving_mode && limit > 0;
@@ -45,13 +52,13 @@ std::vector<double> run(
             use_skipA, do_skipA, stream);
     }
 
-    auto fits = [&](size_t nB, size_t kB, bool need_gemm) {
+    auto fits = [&](size_t nB, size_t kB, bool need_pair) {
         if (workSize<true, BACKEND>(
                 nB, nB, kB, NUM_MODULI, false, false, nullptr, nullptr, fastmode) > limit) {
             return false;
         }
 
-        return !need_gemm ||
+        return !need_pair ||
                gemm::workSize<true, BACKEND>(
                    nB, nB, kB, NUM_MODULI, false, false, nullptr, nullptr, fastmode) <= limit;
     };
@@ -67,33 +74,12 @@ std::vector<double> run(
     const cublasOperation_t op_B = (trans == CUBLAS_OP_N) ? CUBLAS_OP_C : CUBLAS_OP_N;
 
     core::blocking::OneScalar<U> one_real_storage;
-    core::blocking::OneScalar<TC> one_complex_storage;
-    core::blocking::RealToComplexScalar<TC> alpha_complex_storage;
-    core::blocking::RealToComplexScalar<TC> beta_complex_storage;
-
-    const U *one_real       = nullptr;
-    const TC *one_complex   = nullptr;
-    const TC *alpha_complex = nullptr;
-    const TC *beta_complex  = nullptr;
+    const U *one_real = nullptr;
 
     if (k > kB) {
         one_real = one_real_storage.get(beta ? static_cast<const void *>(beta) : static_cast<const void *>(alpha), stream);
         if (!one_real) {
             assert(false && "Failed to create beta=1 scalar for blocked HERK.");
-            return std::vector<double>(4, 0.0);
-        }
-    }
-
-    if (n > nB) {
-        alpha_complex = alpha_complex_storage.get(alpha, stream);
-        beta_complex  = beta_complex_storage.get(beta, stream);
-        if (k > kB) one_complex = one_complex_storage.get(alpha, stream);
-        if (!alpha_complex || (beta && !beta_complex) || (k > kB && !one_complex)) {
-            assert(false && "Failed to create complex scalars for blocked HERK.");
-            one_real_storage.release(stream);
-            alpha_complex_storage.release(stream);
-            beta_complex_storage.release(stream);
-            one_complex_storage.release(stream);
             return std::vector<double>(4, 0.0);
         }
     }
@@ -114,22 +100,19 @@ std::vector<double> run(
             core::blocking::add_timer(timer, t);
         },
         [&](size_t i, size_t ni, size_t j, size_t nj, size_t p, size_t kp, bool first) {
-            TC *Cij              = C + i + j * ldc;
-            const TA *Ai         = core::blocking::matrix_block_ptr(A, lda, trans, i, p);
-            const TA *Aj         = core::blocking::matrix_block_ptr(A, lda, trans, j, p);
-            const TC *beta_block = first ? beta_complex : one_complex;
-            const auto t         = core::oz2_core<Func::gemm, TA, TA, TC, BACKEND, NUM_MODULI>(
+            TC *Cij             = C + i + j * ldc;
+            const TA *Ai        = core::blocking::matrix_block_ptr(A, lda, trans, i, p);
+            const TA *Aj        = core::blocking::matrix_block_ptr(A, lda, trans, j, p);
+            const U *beta_block = first ? beta : one_real;
+            const auto t        = core::oz2_core<Func::gemm, TA, TA, TC, BACKEND, NUM_MODULI, U, U>(
                 handle, trans, op_B, ni, nj, kp,
-                alpha_complex, Ai, lda, Aj, lda, beta_block, Cij, ldc,
+                alpha, Ai, lda, Aj, lda, beta_block, Cij, ldc,
                 fastmode, work, nullptr, nullptr,
                 false, false, false, false, stream);
             core::blocking::add_timer(timer, t);
         });
 
     one_real_storage.release(stream);
-    one_complex_storage.release(stream);
-    alpha_complex_storage.release(stream);
-    beta_complex_storage.release(stream);
     return timer;
 }
 

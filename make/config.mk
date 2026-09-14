@@ -5,6 +5,14 @@
 # Select GPU backend: cuda, hip, or auto.
 BACKEND ?= auto
 
+# Operation families (each includes its ordinary and Lt API).
+# Example: OPS="gemm trsm". Default: every operation.
+OPS ?= all
+
+# Ozaki-II emulation backends, independent of BACKEND=cuda|hip.
+# Example: OZ2_BACKENDS=INT8 or OZ2_BACKENDS=FP8.
+OZ2_BACKENDS ?= INT8 FP8
+
 # Path to CUDA toolkit installation.
 CUDA_PATH ?= /usr/local/cuda
 

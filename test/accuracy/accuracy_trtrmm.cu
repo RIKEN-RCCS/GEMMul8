@@ -75,7 +75,7 @@ void check_accuracy(
     cublasDiagType_t diag_B,
     const bool run_Ozaki2_I8,
     const bool run_Ozaki2_F8,
-    const bool run_Ozaki1_I8 //
+    const bool run_cuBLAS_FP64_emu //
 ) {
     if (uplo_A != CUBLAS_FILL_MODE_UPPER && uplo_A != CUBLAS_FILL_MODE_LOWER) {
         assert(false && "TRTRMM requires uplo_A = UPPER or LOWER.");
@@ -161,7 +161,7 @@ void check_accuracy(
 
     bool run_oz2_i8 = run_Ozaki2_I8;
     bool run_oz2_f8 = run_Ozaki2_F8;
-    bool run_oz1_i8 = run_Ozaki1_I8 && use_ozaki1;
+    bool run_oz1_i8 = run_cuBLAS_FP64_emu && use_ozaki1;
 
     std::vector<size_t> K_list;
     for (auto &n : N_list) {
@@ -183,8 +183,14 @@ void check_accuracy(
         gemmul8::set_memory_savingLt(handleLt, true);
         gemmul8::set_max_worksizeLt(handleLt, memory_limit);
     }
-    const size_t lwork_gemmul8_i8_ = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::INT8, func>(n_max, n_max, n_max, num_moduli_max);
-    const size_t lwork_gemmul8_f8_ = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(n_max, n_max, n_max, num_moduli_max);
+    size_t lwork_gemmul8_i8_ = 0;
+    size_t lwork_gemmul8_f8_ = 0;
+#if GEMMUL8_BUILD_INT8
+    lwork_gemmul8_i8_ = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::INT8, func>(n_max, n_max, n_max, num_moduli_max);
+#endif
+#if GEMMUL8_BUILD_FP8
+    lwork_gemmul8_f8_ = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(n_max, n_max, n_max, num_moduli_max);
+#endif
     const size_t lwork_ozaki1_     = ozaki1::workSize(n_max, n_max, n_max, 1, testTraits<T>::is_complex, 8 * num_slice_max - 1);
     const size_t lwork_gemmul8_i8  = (run_oz2_i8) ? std::max(memory_limit, lwork_gemmul8_i8_) : 0;
     const size_t lwork_gemmul8_f8  = (run_oz2_f8) ? std::max(memory_limit, lwork_gemmul8_f8_) : 0;
@@ -287,7 +293,7 @@ void check_accuracy(
                     const std::string funcname =
                         std::to_string(phi) + "," +
                         std::to_string(n) + "," +
-                        std::string("OS1-") + std::to_string(num_slice) + ",";
+                        std::string("cublas_FP64emu-") + std::to_string(mantissaBitCount) + ",";
 
                     PRINT_nobreak(outFile, funcname);
 
@@ -362,6 +368,7 @@ void check_accuracy(
             }
 #endif
 
+#if GEMMUL8_BUILD_INT8
             //-------------------------------
             // fast mode int8
             //-------------------------------
@@ -449,7 +456,9 @@ void check_accuracy(
                 PRINT(outFile, "");
                 CHECK_CUDA(cudaStreamSynchronize(stream));
             }
+#endif
 
+#if GEMMUL8_BUILD_FP8
             //-------------------------------
             // fast mode fp8
             //-------------------------------
@@ -539,6 +548,7 @@ void check_accuracy(
                 PRINT(outFile, "");
                 CHECK_CUDA(cudaStreamSynchronize(stream));
             }
+#endif
         }
     }
 

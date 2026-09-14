@@ -8,13 +8,13 @@ namespace gemmul8::scaling::fast {
 
 inline constexpr float u2 = 0x1.0000000000000p-23F; // 2^-23
 
-template <Backend BACKEND, unsigned NUM_MODULI, typename T>
+template <Backend BACKEND, unsigned NUM_MODULI, typename T, bool COMPLEX = false>
 __device__ __forceinline__ int32_t calc_sft(T vecnrm) {
     if (vecnrm == T(0.0)) return 0;
     const int32_t exponent = common::Tilogb<T>(vecnrm);
     const float vecnrmf    = common::float_ru<T>(common::Tscalbn<T>(vecnrm, -exponent));
     const float exponent2  = exponent * 0.5f;
-    constexpr float log2P  = common::table::log2P<BACKEND, NUM_MODULI>;
+    constexpr float log2P  = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX>;
     const float mu0        = __fsub_rd(log2P, exponent2);
     const float mu1        = __fadd_ru(__log2f(vecnrmf) * 0.5f, u2);
     return __float2int_rd(__fsub_rd(mu0, mu1));
@@ -38,7 +38,7 @@ __global__ void calc_sft_rowwise(
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < rows_A && threadIdx.x == 0) {
-        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum);
+        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>>(sum);
         sftA[row_idx]     = int16_t(-sft);
     }
 }
@@ -59,7 +59,7 @@ __device__ __forceinline__ int32_t calc_sft_colwise(
         sum              = common::__Tadd_ru<U>(sum, Uone);
     }
 
-    const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum);
+    const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>>(sum);
     if (threadIdx.x == 0) {
         const unsigned col_idx = blockIdx.x;
         sftA[col_idx]          = int16_t(-sft);
@@ -109,7 +109,7 @@ __global__ void calc_sft_sym_colwise(
     if (threadIdx.x == 0) {
         const U sum_all = common::__Tadd_ru<U>(sumA[col_idx], sum_col);
 
-        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum_all);
+        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>>(sum_all);
         sftA[col_idx]     = int16_t(-sft);
     }
 }
@@ -258,7 +258,7 @@ __global__ void calc_sft_rowwise_reduce(
         }
 
         if (threadIdx.x == 0) {
-            const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U>(sum);
+            const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>>(sum);
             sftA[row_idx]     = int16_t(-sft);
         }
     }

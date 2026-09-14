@@ -147,6 +147,7 @@ static inline cublasStatus_t call_gemmul8_her2k(
     cudaStream_t stream //
 ) {
     if (backend == gemmul8::Backend::INT8) {
+#if GEMMUL8_BUILD_INT8
 
         (void)gemmul8::her2k<T, gemmul8::Backend::INT8>(
             handle,
@@ -163,7 +164,11 @@ static inline cublasStatus_t call_gemmul8_her2k(
             skip_A, skip_B);
 
         return CUBLAS_STATUS_SUCCESS;
+#else
+        return CUBLAS_STATUS_NOT_SUPPORTED;
+#endif
     }
+#if GEMMUL8_BUILD_FP8
 
     cublasLtHandle_t lt  = nullptr;
     cublasStatus_t st_lt = gemmul8::hook::ensure_lt_handle_locked(hst, &lt);
@@ -185,6 +190,9 @@ static inline cublasStatus_t call_gemmul8_her2k(
         stream);
 
     return CUBLAS_STATUS_SUCCESS;
+#else
+    return CUBLAS_STATUS_NOT_SUPPORTED;
+#endif
 }
 
 template <typename T>
@@ -195,20 +203,29 @@ static inline size_t call_gemmul8_her2k_workSize(
     bool enable_skip_A,
     bool enable_skip_B,
     size_t *wA,
-    size_t *wB //
+    size_t *wB,
+    bool fastmode //
 ) {
     constexpr bool COMPLEX       = true;
     constexpr gemmul8::Func FUNC = gemmul8::Func::her2k;
     if (backend == gemmul8::Backend::INT8) {
+#if GEMMUL8_BUILD_INT8
         constexpr gemmul8::Backend BACKEND = gemmul8::Backend::INT8;
         return gemmul8::workSize<COMPLEX, BACKEND, FUNC>(
             static_cast<size_t>(n), static_cast<size_t>(n), static_cast<size_t>(k),
-            num_moduli, enable_skip_A, enable_skip_B, wA, wB);
+            num_moduli, enable_skip_A, enable_skip_B, wA, wB, fastmode);
+#else
+        return 0;
+#endif
     } else {
+#if GEMMUL8_BUILD_FP8
         constexpr gemmul8::Backend BACKEND = gemmul8::Backend::FP8;
         return gemmul8::workSize<COMPLEX, BACKEND, FUNC>(
             static_cast<size_t>(n), static_cast<size_t>(n), static_cast<size_t>(k),
-            num_moduli, enable_skip_A, enable_skip_B, wA, wB);
+            num_moduli, enable_skip_A, enable_skip_B, wA, wB, fastmode);
+#else
+        return 0;
+#endif
     }
 }
 
@@ -261,7 +278,8 @@ static inline cublasStatus_t run_gemmul8_her2k_emulation(const Her2kArgs<T> &a, 
         env.num_moduli,
         ws_config.enable_skipA,
         ws_config.enable_skipB,
-        &wsizeA, &wsizeB);
+        &wsizeA, &wsizeB,
+        env.fastmode);
 
     if (wsize < wsizeA + wsizeB) return CUBLAS_STATUS_INVALID_VALUE;
 
@@ -344,6 +362,7 @@ static inline cublasStatus_t her2k_common_impl(
     HookHer2kEnv env{};
     Her2kTraits<T>::get_env(OP, env.num_moduli, env.fastmode, env.enable_skipA, env.enable_skipB);
     env.backend = gemmul8::hook::requested_backend(OP);
+    if (!gemmul8::hook::backend_is_built(env.backend)) return call_native();
 
     constexpr int num_moduli_min = 2;
     constexpr int num_moduli_max = gemmul8::hook::num_moduli_threshold<T>;

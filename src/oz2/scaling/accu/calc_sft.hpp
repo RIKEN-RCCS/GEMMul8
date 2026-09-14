@@ -15,31 +15,51 @@ template <Backend b> inline constexpr int maxUFP = (b == Backend::FP8) ? 6 : 5;
 template <Backend b> inline constexpr int maxUFP = (b == Backend::FP8) ? 7 : 5;
 #endif
 
+template <Backend BACKEND, bool COMPLEX>
+__host__ __device__ __forceinline__ int extraction_max_ufp(const unsigned k) {
+    if constexpr (BACKEND == Backend::FP8) {
+        return maxUFP<BACKEND>;
+    } else {
+#if defined(__CUDA_ARCH__) || (defined(__HIP_DEVICE_COMPILE__) && __HIP_DEVICE_COMPILE__)
+        const int ufp = max(0, __clz(k) - 1 - int(COMPLEX)) / 2 - 1;
+        return min(maxUFP<BACKEND>, ufp);
+#else
+        const int ufp = std::max(0, std::countl_zero(k) - 1 - int(COMPLEX)) / 2 - 1;
+        return std::min(maxUFP<BACKEND>, ufp);
+#endif
+    }
+}
+
+template <Backend BACKEND, bool COMPLEX>
+__host__ __device__ __forceinline__ bool norm_requires_fast_scaling(const size_t k) {
+    return BACKEND == Backend::INT8 && k > size_t(0x7fffffffU >> unsigned(COMPLEX));
+}
+
 inline constexpr float mh4u_ru = -0x1.0000060000000p-1F; // -1 * round_up(0.5 / (1 - 4 * 2^-24))
 
-template <unsigned NUM_MODULI>
+template <unsigned NUM_MODULI, Backend BACKEND = Backend::INT8, bool COMPLEX = false>
 __device__ __forceinline__ int32_t calc_sft(int32_t amax) {
     if (amax == 0) return 0;
-    constexpr float log2P = common::table::log2P<Backend::INT8, NUM_MODULI>;
+    constexpr float log2P = common::table::log2P<Backend::INT8, NUM_MODULI, COMPLEX>;
     const float log2amax  = __log2f(__int2float_ru(amax));
     return __float2int_rd(__fmaf_rd(mh4u_ru, log2amax, log2P));
 }
 
-template <unsigned NUM_MODULI, Backend BACKEND = Backend::FP8>
+template <unsigned NUM_MODULI, Backend BACKEND = Backend::FP8, bool COMPLEX = false>
 __device__ __forceinline__ int32_t calc_sft(float amax) {
     if (amax == 0.0f) return 0;
-    constexpr float log2P = common::table::log2P<BACKEND, NUM_MODULI>;
+    constexpr float log2P = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX>;
     const float log2amax  = __log2f(amax);
     return __float2int_rd(__fmaf_rd(mh4u_ru, log2amax, log2P));
 }
 
-template <Backend BACKEND, unsigned NUM_MODULI>
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false>
 __global__ void calc_sft_delta(
     const unsigned len,
     const int16_t *const __restrict__ sft_final,
     int16_t *const __restrict__ sft_saved_or_delta //
 ) {
-    constexpr float log2P = common::table::log2P<BACKEND, NUM_MODULI>;
+    constexpr float log2P = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX>;
 
     const unsigned idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= len) return;
@@ -72,7 +92,7 @@ __global__ void calc_sft_before_rowwise(
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < rows_A && threadIdx.x == 0) {
-        sftA[row_idx] = maxUFP<BACKEND> - common::Tilogb<U>(amax);
+        sftA[row_idx] = extraction_max_ufp<BACKEND, common::isComplex<T>>(cols_A) - common::Tilogb<U>(amax);
     }
 }
 
@@ -108,7 +128,7 @@ __device__ __forceinline__ int32_t calc_sft_before_colwise(
         amax             = max(amax, Uone);
     }
 
-    const int32_t sft = maxUFP<BACKEND> - common::Tilogb<U>(amax);
+    const int32_t sft = extraction_max_ufp<BACKEND, common::isComplex<T>>(rows_A) - common::Tilogb<U>(amax);
     if (threadIdx.x == 0) {
         const unsigned col_idx = blockIdx.x;
         sftA[col_idx]          = int16_t(sft);
@@ -136,7 +156,7 @@ __global__ void calc_sft_before_sym_colwise(
 
     if (threadIdx.x == 0) {
         const U amax_all  = common::Tmax<U>(amaxA[col_idx], amax_col);
-        const int32_t sft = maxUFP<BACKEND> - common::Tilogb<U>(amax_all);
+        const int32_t sft = extraction_max_ufp<BACKEND, common::isComplex<T>>(n) - common::Tilogb<U>(amax_all);
         sftA[col_idx]     = int16_t(sft);
     }
 }
@@ -246,7 +266,7 @@ __global__ void calc_sft_after_rowwise(
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < m && threadIdx.x == 0) {
         const int32_t sft_pre = sftA[row_idx];
-        const int32_t sft_cor = calc_sft<NUM_MODULI>(amax);
+        const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax);
         const int32_t sft_new = sft_pre + sft_cor;
         sftA[row_idx]         = static_cast<int16_t>(-sft_new);
     }
@@ -267,7 +287,7 @@ __global__ void calc_sft_after_rowwise_with_delta(
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < m && threadIdx.x == 0) {
         const int32_t sft_pre = sftA[row_idx];
-        const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND>(amax);
+        const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax);
         const int32_t sft_new = sft_pre + sft_cor;
         sftA[row_idx]         = static_cast<int16_t>(-sft_new);
     }
@@ -286,7 +306,7 @@ __global__ void calc_sft_after_colwise(
     if (threadIdx.x == 0) {
         const unsigned col_idx = blockIdx.x;
         const int32_t sft_pre  = sftA[col_idx];
-        const int32_t sft_cor  = calc_sft<NUM_MODULI>(amax);
+        const int32_t sft_cor  = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax);
         const int32_t sft_new  = sft_pre + sft_cor;
         sftA[col_idx]          = static_cast<int16_t>(-sft_new);
     }
@@ -307,7 +327,7 @@ __global__ void calc_sft_after_colwise_with_delta(
     if (threadIdx.x == 0) {
         const unsigned col_idx = blockIdx.x;
         const int32_t sft_pre  = sftA[col_idx];
-        const int32_t sft_cor  = calc_sft<NUM_MODULI, BACKEND>(amax);
+        const int32_t sft_cor  = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax);
         const int32_t sft_new  = sft_pre + sft_cor;
         sftA[col_idx]          = static_cast<int16_t>(-sft_new);
     }
@@ -346,7 +366,7 @@ __global__ void calc_sft_after_colwise_sym(
         const common::hi_t<BACKEND> amax_pre = maxC[col_idx];
         const common::hi_t<BACKEND> amax_new = max(amax_pre, amax);
         const int32_t sft_pre                = sftA[col_idx];
-        const int32_t sft_cor                = calc_sft<NUM_MODULI>(amax_new);
+        const int32_t sft_cor                = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax_new);
         const int32_t sft_new                = sft_pre + sft_cor;
         sftA[col_idx]                        = static_cast<int16_t>(-sft_new);
     }
@@ -468,7 +488,7 @@ __global__ void calc_sft_before_rowwise_partial(
 
 template <typename T, Backend BACKEND, cublasDiagType_t DIAG>
 __global__ void calc_sft_before_rowwise_reduce(
-    const unsigned rows_A,
+    const unsigned rows_A, const unsigned cols_A,
     const unsigned num_col_blocks,
     const common::underlying_t<T> *const __restrict__ partial_amax,
     int16_t *const __restrict__ sftA //
@@ -492,7 +512,7 @@ __global__ void calc_sft_before_rowwise_reduce(
         }
 
         if (threadIdx.x == 0) {
-            sftA[row_idx] = int16_t(maxUFP<BACKEND> - common::Tilogb<U>(amax));
+            sftA[row_idx] = int16_t(extraction_max_ufp<BACKEND, common::isComplex<T>>(cols_A) - common::Tilogb<U>(amax));
         }
     }
 }
@@ -533,7 +553,7 @@ inline void calc_sft_before_rowwise_launch(
 
     calc_sft_before_rowwise_reduce<T, BACKEND, DIAG>
         <<<grid_reduce, threads_reduce, 0, stream>>>(
-            rows_A, num_col_blocks, partial_amax, sftA);
+            rows_A, cols_A, num_col_blocks, partial_amax, sftA);
 }
 
 template <typename T, Backend BACKEND, cublasFillMode_t UPLO>
@@ -580,7 +600,7 @@ __global__ void calc_sft_after_rowwise_reduce(
 
         if (threadIdx.x == 0) {
             const int32_t sft_pre = sftA[row_idx];
-            const int32_t sft_cor = calc_sft<NUM_MODULI>(amax);
+            const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax);
             const int32_t sft_new = sft_pre + sft_cor;
             sftA[row_idx]         = static_cast<int16_t>(-sft_new);
         }
@@ -649,7 +669,7 @@ __global__ void calc_sft_after_rowwise_with_delta_partial(
     }
 }
 
-template <Backend BACKEND, unsigned NUM_MODULI>
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX>
 __global__ void calc_sft_after_rowwise_with_delta_reduce(
     const unsigned m,
     const unsigned num_col_blocks,
@@ -669,7 +689,7 @@ __global__ void calc_sft_after_rowwise_with_delta_reduce(
 
         if (threadIdx.x == 0) {
             const int32_t sft_pre = sftA[row_idx];
-            const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND>(amax);
+            const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, COMPLEX>(amax);
             const int32_t sft_new = sft_pre + sft_cor;
             sftA[row_idx]         = static_cast<int16_t>(-sft_new);
         }
@@ -712,7 +732,7 @@ inline void calc_sft_after_rowwise_with_delta_launch(
     const unsigned grid_reduce =
         (m + threads_y_rowwise_sft_reduce - 1U) / threads_y_rowwise_sft_reduce;
 
-    calc_sft_after_rowwise_with_delta_reduce<BACKEND, NUM_MODULI>
+    calc_sft_after_rowwise_with_delta_reduce<BACKEND, NUM_MODULI, common::isComplex<T>>
         <<<grid_reduce, threads_reduce, 0, stream>>>(
             m, num_col_blocks, partial_amax, sftA);
 }

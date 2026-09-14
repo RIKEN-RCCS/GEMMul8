@@ -77,7 +77,7 @@ __device__ __forceinline__ int8_t sub_ru_8bit(int8_t a, int8_t b) {
     return int8_t(a - b);
 }
 __device__ __forceinline__ __nv_fp8_e4m3 sub_ru_8bit(__nv_fp8_e4m3 a, __nv_fp8_e4m3 b) {
-    return fp8_e4m3_ru(float(a) - float(b));
+    return fp8_e4m3_ru(fabsf(float(a) - float(b)));
 }
 
 template <typename T, Backend BACKEND>
@@ -154,7 +154,7 @@ __device__ __forceinline__ void extract_colwise_store4_complex(
 
     out_1[i] = common::concat(v0.x, v1.x, v2.x, v3.x);                          // Re
     out_2[i] = common::concat(v0.y, v1.y, v2.y, v3.y);                          // Im
-    out_3[i] = common::concat(sub_ru_8bit(v0.x, v0.y), sub_ru_8bit(v1.x, v1.y), // Re - Im
+    out_3[i] = common::concat(sub_ru_8bit(v0.x, v0.y), sub_ru_8bit(v1.x, v1.y), // INT8: Re - Im; FP8: abs(Re - Im), rounded up
                               sub_ru_8bit(v2.x, v2.y), sub_ru_8bit(v3.x, v3.y));
 }
 
