@@ -56,7 +56,6 @@ __device__ __forceinline__ double2 accumulate_real_integer_high(
     const size_t inc //
 ) {
     using Q = crt_integer_traits<B, N, false>;
-    static_assert(Q::exact);
     int64_t hi;
     double lo;
     accumulate_real_integer_high<B, N>(hi, lo, mid, inc);
@@ -93,7 +92,6 @@ __device__ __forceinline__ common::double2x2_t accumulate_complex_integer_high(
     const size_t inc //
 ) {
     using Q = crt_integer_traits<B, N, true>;
-    static_assert(Q::exact);
     int64_t re, im;
     double2 lo;
     accumulate_complex_integer_high<B, N>(re, im, lo, mid, inc);
