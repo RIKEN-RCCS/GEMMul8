@@ -142,13 +142,13 @@ void check_accuracy(
     lwork_gemmul8_i8_ = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::INT8, func>(n_max, n_max, k_max, num_moduli_max);
 #endif
 #if GEMMUL8_BUILD_FP8
-    lwork_gemmul8_f8_ = emmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(n_max, n_max, k_max, num_moduli_max);
+    lwork_gemmul8_f8_ = gemmul8::workSize<testTraits<T>::is_complex, gemmul8::Backend::FP8, func>(n_max, n_max, k_max, num_moduli_max);
 #endif
-    const size_t lwork_ozaki1_     = ozaki1::workSize(n_max, n_max, k_max, 1, testTraits<T>::is_complex, 8 * num_slice_max - 1);
-    const size_t lwork_gemmul8_i8  = (run_oz2_i8) ? std::max(memory_limit, lwork_gemmul8_i8_) : 0;
-    const size_t lwork_gemmul8_f8  = (run_oz2_f8) ? std::max(memory_limit, lwork_gemmul8_f8_) : 0;
-    const size_t lwork_ozaki1      = (run_oz1_i8) ? lwork_ozaki1_ : 0;
-    const size_t lwork_emu         = std::max(std::max(lwork_gemmul8_i8, lwork_gemmul8_f8), lwork_ozaki1);
+    const size_t lwork_ozaki1_    = ozaki1::workSize(n_max, n_max, k_max, 1, testTraits<T>::is_complex, 8 * num_slice_max - 1);
+    const size_t lwork_gemmul8_i8 = (run_oz2_i8) ? std::max(memory_limit, lwork_gemmul8_i8_) : 0;
+    const size_t lwork_gemmul8_f8 = (run_oz2_f8) ? std::max(memory_limit, lwork_gemmul8_f8_) : 0;
+    const size_t lwork_ozaki1     = (run_oz1_i8) ? lwork_ozaki1_ : 0;
+    const size_t lwork_emu        = std::max(std::max(lwork_gemmul8_i8, lwork_gemmul8_f8), lwork_ozaki1);
 
     CHECK_CUDA(cudaMallocAsync(reinterpret_cast<void **>(&A), size_A * sizeof(T), stream));
     CHECK_CUDA(cudaMallocAsync(reinterpret_cast<void **>(&C), size_C * sizeof(T), stream));

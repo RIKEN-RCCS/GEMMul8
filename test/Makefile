@@ -144,7 +144,7 @@ endif
 
 all: $(TARGET)
 
-$(TARGET): $(CU_OBJ)
+$(TARGET): $(CU_OBJ) ../lib/libgemmul8.a
 	$(COMPILER) $(FLAGS) $(ARCH) $(CU_OBJ) -o $@ $(LIBS)
 
 FORCE:
