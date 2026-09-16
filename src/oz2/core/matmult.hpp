@@ -18,7 +18,7 @@ inline unsigned batch_count(
     const size_t worksizeC,
     const unsigned pointer_products_per_modulus = 0u //
 ) {
-    if (arch == 121 && sizeC_Hi < (size_t(64) << 20)) return 1u;
+    if (arch == 121) return 1u;
     if (arch == 90 && n > 2048) return 1u;
     const size_t available  = worksizeC - i * sizeC_Mid;
     const unsigned rem_calc = NUM_MODULI - i;
