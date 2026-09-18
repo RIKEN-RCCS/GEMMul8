@@ -4,11 +4,11 @@
 
 namespace gemmul8::common {
 
-#if defined(CUBLAS_VER_MAJOR) && (CUBLAS_VER_MAJOR >= 13)
-inline constexpr auto GEMMul8_GEMM_ALGO = CUBLAS_GEMM_AUTOTUNE;
-#else
+// #if defined(CUBLAS_VER_MAJOR) && (CUBLAS_VER_MAJOR >= 13)
+// inline constexpr auto GEMMul8_GEMM_ALGO = CUBLAS_GEMM_AUTOTUNE;
+// #else
 inline constexpr auto GEMMul8_GEMM_ALGO = CUBLAS_GEMM_DEFAULT;
-#endif
+// #endif
 
 template <Backend BACKEND>
 inline void call_gemm_tn_raw(
