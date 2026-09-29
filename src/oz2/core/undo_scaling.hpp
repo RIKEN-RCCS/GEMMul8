@@ -21,22 +21,23 @@ inline void undo_scaling(
     const size_t ldc_mid, const size_t incC_mid,
     TC *const C, const size_t ldc,
     const int16_t *const sftA, const int16_t *const sftB,
-    const TAlpha *alpha, const TBeta *beta //
+    const TAlpha *alpha, const TBeta *beta,
+    const undo_scaling::crt_tail<BACKEND> tail //
 ) {
     if constexpr (FUNC == Func::syr2k) {
 
         undo_scaling::undo_scaling_syr2k<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C>(
-            stream, m, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+            stream, m, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
 
     } else if constexpr (FUNC == Func::her2k) {
 
         undo_scaling::undo_scaling_her2k<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C>(
-            stream, m, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+            stream, m, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
 
     } else if constexpr (FUNC == Func::herk || FUNC == Func::herkx) {
 
         undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C, false, true>(
-            stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+            stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
 
     } else if constexpr (FUNC == Func::trtrmm) {
 
@@ -44,28 +45,28 @@ inline void undo_scaling(
             if (op_B == CUBLAS_OP_N) {
                 constexpr cublasFillMode_t UPLO = ((UPLO_A == UPLO_B)) ? UPLO_A : UPLO_C;
                 undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, true>(
-                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
             } else {
                 constexpr cublasFillMode_t UPLO = ((UPLO_A == flip_uplo<UPLO_B>)) ? UPLO_A : UPLO_C;
                 undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, true>(
-                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
             }
         } else {
             if (op_B == CUBLAS_OP_N) {
                 constexpr cublasFillMode_t UPLO = ((flip_uplo<UPLO_A> == UPLO_B)) ? flip_uplo<UPLO_A> : UPLO_C;
                 undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, true>(
-                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
             } else {
                 constexpr cublasFillMode_t UPLO = ((flip_uplo<UPLO_A> == flip_uplo<UPLO_B>)) ? flip_uplo<UPLO_A> : UPLO_C;
                 undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, true>(
-                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+                    stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
             }
         }
 
     } else {
 
         undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C>(
-            stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+            stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
     }
 }
 

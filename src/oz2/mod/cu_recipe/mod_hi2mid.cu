@@ -26,6 +26,7 @@ template void mod_hi2mid<BE, COMPLEX, UPLO>(
     const unsigned,
     const size_t, const unsigned,
     common::matptr_t<common::hi_t<BE>, COMPLEX> &,
-    common::mid_t<BE, COMPLEX> *);
+    common::mid_t<BE, COMPLEX> *,
+    const unsigned);
 
 } // namespace gemmul8::mod

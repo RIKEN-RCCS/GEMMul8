@@ -8,6 +8,18 @@ namespace gemmul8::mod {
 
 namespace {
 
+template <unsigned IDX, bool COMPLEX = false>
+__device__ __forceinline__ int4 fp8_residue_x4(const float4 *ptr, size_t i, size_t sizeC4) {
+    const float4 c0 = ptr[i];
+    float4 c1{}, c2{};
+    if constexpr (fp8_product_count<IDX, COMPLEX> > 1U) c1 = ptr[i + sizeC4];
+    if constexpr (fp8_product_count<IDX, COMPLEX> > 2U) c2 = ptr[i + 2 * sizeC4];
+    return {mod_f32x3_2_i32<IDX, false, COMPLEX>(c0.x, c1.x, c2.x),
+            mod_f32x3_2_i32<IDX, false, COMPLEX>(c0.y, c1.y, c2.y),
+            mod_f32x3_2_i32<IDX, false, COMPLEX>(c0.z, c1.z, c2.z),
+            mod_f32x3_2_i32<IDX, false, COMPLEX>(c0.w, c1.w, c2.w)};
+}
+
 template <Backend BACKEND, unsigned IDX>
 __device__ __forceinline__ common::mid_t<BACKEND> mod_hi2mid_core(const int in) {
     if constexpr (common::table::moduli<BACKEND, IDX, false> == 256) {
@@ -76,22 +88,12 @@ __device__ __forceinline__ int4 mod_hi2mid_device(
     const float4 *__restrict__ C_plus,
     const float4 *__restrict__ C_minus //
 ) {
-    const float4 a0 = C_plus[idx], a1 = C_plus[idx + sizeC4], a2 = C_plus[idx + 2 * sizeC4];
-    const float4 b0 = C_minus[idx], b1 = C_minus[idx + sizeC4], b2 = C_minus[idx + 2 * sizeC4];
-    int4 out;
-    out.x = pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(
-        mod_f32x3_2_i32<IDX, false, true>(a0.x, a1.x, a2.x),
-        mod_f32x3_2_i32<IDX, false, true>(b0.x, b1.x, b2.x));
-    out.y = pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(
-        mod_f32x3_2_i32<IDX, false, true>(a0.y, a1.y, a2.y),
-        mod_f32x3_2_i32<IDX, false, true>(b0.y, b1.y, b2.y));
-    out.z = pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(
-        mod_f32x3_2_i32<IDX, false, true>(a0.z, a1.z, a2.z),
-        mod_f32x3_2_i32<IDX, false, true>(b0.z, b1.z, b2.z));
-    out.w = pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(
-        mod_f32x3_2_i32<IDX, false, true>(a0.w, a1.w, a2.w),
-        mod_f32x3_2_i32<IDX, false, true>(b0.w, b1.w, b2.w));
-    return out;
+    const int4 a = fp8_residue_x4<IDX, true>(C_plus, idx, sizeC4);
+    const int4 b = fp8_residue_x4<IDX, true>(C_minus, idx, sizeC4);
+    return {pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.x, b.x),
+            pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.y, b.y),
+            pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.z, b.z),
+            pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.w, b.w)};
 }
 
 // real
@@ -107,7 +109,8 @@ __global__ void mod_hi2mid_ge_kernel(
     if constexpr (BACKEND == Backend::INT8) {
         C_midx4[idx] = mod_hi2mid_core_x4<IDX>(C_hix4[idx]);
     } else {
-        C_midx4[idx] = mod_hi2mid_core_x4<IDX>(C_hix4[idx], C_hix4[idx + sizeC4], C_hix4[idx + 2U * sizeC4]);
+        const int4 r = fp8_residue_x4<IDX>(C_hix4, idx, sizeC4);
+        C_midx4[idx] = {int16_t(r.x), int16_t(r.y), int16_t(r.z), int16_t(r.w)};
     }
 }
 
@@ -136,7 +139,8 @@ __global__ void mod_hi2mid_tri_kernel(
     if constexpr (BACKEND == Backend::INT8) {
         C_midx4[idx] = mod_hi2mid_core_x4<IDX>(C_hix4[idx]);
     } else {
-        C_midx4[idx] = mod_hi2mid_core_x4<IDX>(C_hix4[idx], C_hix4[idx + sizeC4], C_hix4[idx + 2U * sizeC4]);
+        const int4 r = fp8_residue_x4<IDX>(C_hix4, idx, sizeC4);
+        C_midx4[idx] = {int16_t(r.x), int16_t(r.y), int16_t(r.z), int16_t(r.w)};
     }
 }
 
@@ -197,8 +201,7 @@ __device__ __forceinline__ int32_t herk_product_residue(
     if constexpr (BACKEND == Backend::INT8) {
         return mod_small<BACKEND, IDX, true>(C_plus[idx]);
     } else {
-        return mod_f32x3_2_i32<IDX, false, true>(
-            C_plus[idx], C_plus[idx + sizeC], C_plus[idx + 2 * sizeC]);
+        return load_fp8_product<IDX, true>(C_plus, idx, sizeC);
     }
 }
 
@@ -265,7 +268,8 @@ inline void mod_hi2mid_launch(
     const cudaStream_t stream,
     const size_t ldc, const unsigned n,
     common::matptr_t<common::hi_t<BACKEND>, COMPLEX> &C_hi,
-    common::mid_t<BACKEND, COMPLEX> *C_mid //
+    common::mid_t<BACKEND, COMPLEX> *C_mid,
+    const unsigned out_idx = IDX //
 ) {
     using HI4  = common::hix4_t<BACKEND>;
     using MID4 = common::midx4_t<BACKEND, COMPLEX>;
@@ -273,7 +277,7 @@ inline void mod_hi2mid_launch(
     const size_t sizeC  = ldc * n;
     const size_t sizeC4 = sizeC >> 2;
 
-    MID4 *C_midx4 = reinterpret_cast<MID4 *>(C_mid + IDX * sizeC);
+    MID4 *C_midx4 = reinterpret_cast<MID4 *>(C_mid + out_idx * sizeC);
 
     if constexpr (COMPLEX) {
 
@@ -333,7 +337,8 @@ inline void mod_hi2mid_AHA_launch(
     const cudaStream_t stream,
     const size_t ldc, const unsigned n,
     common::matptr_t<common::hi_t<BACKEND>, true> &C_hi,
-    common::mid_t<BACKEND, true> *C_mid //
+    common::mid_t<BACKEND, true> *C_mid,
+    const unsigned out_idx = IDX //
 ) {
     if (n == 0) return;
     const size_t sizeC = ldc * n;
@@ -342,10 +347,18 @@ inline void mod_hi2mid_AHA_launch(
 
     mod_hi2mid_AHA_kernel<BACKEND, IDX, UPLO, FLIP_IMAG>
         <<<grid, threads, 0, stream>>>(
-            n, ldc, sizeC, C_hi.ptr0, C_mid + IDX * sizeC);
+            n, ldc, sizeC, C_hi.ptr0, C_mid + out_idx * sizeC);
 }
 
 } // namespace
+
+#define GEMMUL8_FP8_MID_CASE(P)                                                                   \
+    case P: {                                                                                     \
+        if constexpr (!COMPLEX || common::fp8_plan::scheme<P>.root_minus_one != 0) {              \
+            mod_hi2mid_launch<BACKEND, COMPLEX, P + 20U, UPLO>(stream, ldc, n, C_hi, C_mid, idx); \
+        }                                                                                         \
+        break;                                                                                    \
+    }
 
 template <Backend BACKEND, bool COMPLEX, cublasFillMode_t UPLO>
 void mod_hi2mid(
@@ -353,32 +366,47 @@ void mod_hi2mid(
     const unsigned idx,
     const size_t ldc, const unsigned n,
     common::matptr_t<common::hi_t<BACKEND>, COMPLEX> &C_hi,
-    common::mid_t<BACKEND, COMPLEX> *C_mid //
+    common::mid_t<BACKEND, COMPLEX> *C_mid,
+    const unsigned num_moduli //
 ) {
-    switch (idx) {
-    case 0U: mod_hi2mid_launch<BACKEND, COMPLEX, 0U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 1U: mod_hi2mid_launch<BACKEND, COMPLEX, 1U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 2U: mod_hi2mid_launch<BACKEND, COMPLEX, 2U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 3U: mod_hi2mid_launch<BACKEND, COMPLEX, 3U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 4U: mod_hi2mid_launch<BACKEND, COMPLEX, 4U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 5U: mod_hi2mid_launch<BACKEND, COMPLEX, 5U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 6U: mod_hi2mid_launch<BACKEND, COMPLEX, 6U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 7U: mod_hi2mid_launch<BACKEND, COMPLEX, 7U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 8U: mod_hi2mid_launch<BACKEND, COMPLEX, 8U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 9U: mod_hi2mid_launch<BACKEND, COMPLEX, 9U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 10U: mod_hi2mid_launch<BACKEND, COMPLEX, 10U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 11U: mod_hi2mid_launch<BACKEND, COMPLEX, 11U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 12U: mod_hi2mid_launch<BACKEND, COMPLEX, 12U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 13U: mod_hi2mid_launch<BACKEND, COMPLEX, 13U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 14U: mod_hi2mid_launch<BACKEND, COMPLEX, 14U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 15U: mod_hi2mid_launch<BACKEND, COMPLEX, 15U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 16U: mod_hi2mid_launch<BACKEND, COMPLEX, 16U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 17U: mod_hi2mid_launch<BACKEND, COMPLEX, 17U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 18U: mod_hi2mid_launch<BACKEND, COMPLEX, 18U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    case 19U: mod_hi2mid_launch<BACKEND, COMPLEX, 19U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
-    default: break;
+    if constexpr (BACKEND == Backend::FP8) {
+        switch (common::fp8_plan::modulus(num_moduli, idx, COMPLEX)) {
+            GEMMUL8_FP8_FOR_EACH_MODULUS(GEMMUL8_FP8_MID_CASE)
+        }
+    } else {
+
+        switch (idx) {
+        case 0U: mod_hi2mid_launch<BACKEND, COMPLEX, 0U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 1U: mod_hi2mid_launch<BACKEND, COMPLEX, 1U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 2U: mod_hi2mid_launch<BACKEND, COMPLEX, 2U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 3U: mod_hi2mid_launch<BACKEND, COMPLEX, 3U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 4U: mod_hi2mid_launch<BACKEND, COMPLEX, 4U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 5U: mod_hi2mid_launch<BACKEND, COMPLEX, 5U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 6U: mod_hi2mid_launch<BACKEND, COMPLEX, 6U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 7U: mod_hi2mid_launch<BACKEND, COMPLEX, 7U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 8U: mod_hi2mid_launch<BACKEND, COMPLEX, 8U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 9U: mod_hi2mid_launch<BACKEND, COMPLEX, 9U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 10U: mod_hi2mid_launch<BACKEND, COMPLEX, 10U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 11U: mod_hi2mid_launch<BACKEND, COMPLEX, 11U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 12U: mod_hi2mid_launch<BACKEND, COMPLEX, 12U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 13U: mod_hi2mid_launch<BACKEND, COMPLEX, 13U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 14U: mod_hi2mid_launch<BACKEND, COMPLEX, 14U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 15U: mod_hi2mid_launch<BACKEND, COMPLEX, 15U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 16U: mod_hi2mid_launch<BACKEND, COMPLEX, 16U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 17U: mod_hi2mid_launch<BACKEND, COMPLEX, 17U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 18U: mod_hi2mid_launch<BACKEND, COMPLEX, 18U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        case 19U: mod_hi2mid_launch<BACKEND, COMPLEX, 19U, UPLO>(stream, ldc, n, C_hi, C_mid); break;
+        }
     }
 }
+
+#undef GEMMUL8_FP8_MID_CASE
+
+#define GEMMUL8_FP8_MID_CASE(P)                                                                     \
+    case P: {                                                                                       \
+        mod_hi2mid_AHA_launch<BACKEND, P + 20U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid, idx); \
+        break;                                                                                      \
+    }
 
 template <Backend BACKEND, cublasFillMode_t UPLO, bool FLIP_IMAG>
 void mod_hi2mid_AHA(
@@ -386,31 +414,40 @@ void mod_hi2mid_AHA(
     const unsigned idx,
     const size_t ldc, const unsigned n,
     common::matptr_t<common::hi_t<BACKEND>, true> &C_hi,
-    common::mid_t<BACKEND, true> *C_mid //
+    common::mid_t<BACKEND, true> *C_mid,
+    const unsigned num_moduli //
 ) {
-    switch (idx) {
-    case 0U: mod_hi2mid_AHA_launch<BACKEND, 0U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 1U: mod_hi2mid_AHA_launch<BACKEND, 1U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 2U: mod_hi2mid_AHA_launch<BACKEND, 2U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 3U: mod_hi2mid_AHA_launch<BACKEND, 3U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 4U: mod_hi2mid_AHA_launch<BACKEND, 4U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 5U: mod_hi2mid_AHA_launch<BACKEND, 5U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 6U: mod_hi2mid_AHA_launch<BACKEND, 6U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 7U: mod_hi2mid_AHA_launch<BACKEND, 7U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 8U: mod_hi2mid_AHA_launch<BACKEND, 8U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 9U: mod_hi2mid_AHA_launch<BACKEND, 9U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 10U: mod_hi2mid_AHA_launch<BACKEND, 10U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 11U: mod_hi2mid_AHA_launch<BACKEND, 11U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 12U: mod_hi2mid_AHA_launch<BACKEND, 12U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 13U: mod_hi2mid_AHA_launch<BACKEND, 13U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 14U: mod_hi2mid_AHA_launch<BACKEND, 14U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 15U: mod_hi2mid_AHA_launch<BACKEND, 15U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 16U: mod_hi2mid_AHA_launch<BACKEND, 16U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 17U: mod_hi2mid_AHA_launch<BACKEND, 17U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 18U: mod_hi2mid_AHA_launch<BACKEND, 18U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    case 19U: mod_hi2mid_AHA_launch<BACKEND, 19U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
-    default: break;
+    if constexpr (BACKEND == Backend::FP8) {
+        switch (common::fp8_plan::modulus(num_moduli, idx, true)) {
+            GEMMUL8_FP8_FOR_EACH_COMPLEX_MODULUS(GEMMUL8_FP8_MID_CASE)
+        }
+    } else {
+
+        switch (idx) {
+        case 0U: mod_hi2mid_AHA_launch<BACKEND, 0U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 1U: mod_hi2mid_AHA_launch<BACKEND, 1U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 2U: mod_hi2mid_AHA_launch<BACKEND, 2U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 3U: mod_hi2mid_AHA_launch<BACKEND, 3U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 4U: mod_hi2mid_AHA_launch<BACKEND, 4U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 5U: mod_hi2mid_AHA_launch<BACKEND, 5U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 6U: mod_hi2mid_AHA_launch<BACKEND, 6U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 7U: mod_hi2mid_AHA_launch<BACKEND, 7U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 8U: mod_hi2mid_AHA_launch<BACKEND, 8U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 9U: mod_hi2mid_AHA_launch<BACKEND, 9U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 10U: mod_hi2mid_AHA_launch<BACKEND, 10U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 11U: mod_hi2mid_AHA_launch<BACKEND, 11U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 12U: mod_hi2mid_AHA_launch<BACKEND, 12U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 13U: mod_hi2mid_AHA_launch<BACKEND, 13U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 14U: mod_hi2mid_AHA_launch<BACKEND, 14U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 15U: mod_hi2mid_AHA_launch<BACKEND, 15U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 16U: mod_hi2mid_AHA_launch<BACKEND, 16U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 17U: mod_hi2mid_AHA_launch<BACKEND, 17U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 18U: mod_hi2mid_AHA_launch<BACKEND, 18U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        case 19U: mod_hi2mid_AHA_launch<BACKEND, 19U, UPLO, FLIP_IMAG>(stream, ldc, n, C_hi, C_mid); break;
+        }
     }
 }
+
+#undef GEMMUL8_FP8_MID_CASE
 
 } // namespace gemmul8::mod

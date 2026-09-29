@@ -10,7 +10,8 @@ void mod_hi2mid(
     const unsigned idx,
     const size_t ldc, const unsigned n,
     common::matptr_t<common::hi_t<BACKEND>, COMPLEX> &C_hi,
-    common::mid_t<BACKEND, COMPLEX> *C_mid);
+    common::mid_t<BACKEND, COMPLEX> *C_mid,
+    const unsigned num_moduli);
 
 template <Backend BACKEND, bool COMPLEX,
           cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
@@ -28,6 +29,7 @@ void mod_hi2mid_AHA(
     const unsigned idx,
     const size_t ldc, const unsigned n,
     common::matptr_t<common::hi_t<BACKEND>, true> &C_hi,
-    common::mid_t<BACKEND, true> *C_mid);
+    common::mid_t<BACKEND, true> *C_mid,
+    const unsigned num_moduli);
 
 } // namespace gemmul8::mod

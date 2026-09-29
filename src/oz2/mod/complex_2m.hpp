@@ -6,7 +6,7 @@ namespace gemmul8::mod {
 // A+ = Ar+s*Ai, A- = Ar-s*Ai, where s*s == -1 (mod p)
 template <Backend BACKEND, unsigned IDX> struct complex_2m_traits {
     static constexpr int32_t p = common::table::moduli<BACKEND, IDX, true>;
-    static_assert(IDX < 20U && p > 2 && (p & 1) != 0);
+    static_assert(p > 2 && (p & 1) != 0);
     static constexpr int32_t root = [] {
         for (int32_t s = 1; s <= p / 2; ++s) {
             if ((s * s + 1) % p == 0) return s;

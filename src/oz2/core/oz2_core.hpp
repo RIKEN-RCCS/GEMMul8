@@ -8,6 +8,7 @@
 #include "scaling.hpp"
 #include "helper_matmult.hpp"
 #include "worksize.hpp"
+#include "crt_groups.hpp"
 
 namespace gemmul8::oz2::core {
 
@@ -67,26 +68,18 @@ inline std::vector<double> oz2_core(
     const bool skipB       = skip_scalB_eff && enable_skip_scalB_eff;
 
     // Set workspace
-    constexpr common::MatMulKind KIND               = matmul_kind<FUNC, STRUCT_A, STRUCT_B, UPLO_C>();
-    constexpr bool use_pointer_arrays               = common::isCUDA && (BACKEND == Backend::FP8) && (KIND == common::MatMulKind::Gemm);
-    constexpr unsigned matmul_per_moduli            = COMPLEX ? 2u : 1u;
-    constexpr unsigned num_C_hi                     = (BACKEND == Backend::INT8) ? 1u : 3u;
-    constexpr unsigned num_mat                      = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX>;
-    constexpr unsigned pointer_products_per_modulus = (use_pointer_arrays) ? ((COMPLEX) ? 6u : 3u) : 0u;
-    const size_t pointer_array_bytes =
-        (use_pointer_arrays)
-            ? common::padding(size_t(3 * pointer_products_per_modulus * NUM_MODULI) * sizeof(void *))
-            : 0u;
+    constexpr common::MatMulKind KIND    = matmul_kind<FUNC, STRUCT_A, STRUCT_B, UPLO_C>();
+    constexpr bool use_pointer_arrays    = common::isCUDA && (BACKEND == Backend::FP8) && (KIND == common::MatMulKind::Gemm);
+    constexpr unsigned matmul_per_moduli = COMPLEX ? 2u : 1u;
+    constexpr unsigned num_mat           = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX>;
+
+    using Layout = product_workspace<BACKEND, COMPLEX, false, use_pointer_arrays>;
 
     const size_t offsetA        = sizeA * num_mat * matmul_per_moduli;
     const size_t offsetB        = sizeB * num_mat * matmul_per_moduli;
     constexpr size_t lwork_blas = size_t(32) << 20; // 32 MiB
     const size_t sizeC_Mid      = sizeof(MidT) * sizeC;
-    const size_t worksizeC_1    = (NUM_MODULI - 1) * sizeC_Mid;
-    const size_t worksizeC_2    = std::max<size_t>(pointer_array_bytes + lwork_blas, sizeC_Mid);
-    const size_t incC_hi        = matmul_per_moduli * num_C_hi * sizeC;
-    const size_t sizeC_Hi       = sizeof(HiT) * incC_hi;
-    const size_t worksizeC      = worksizeC_1 + worksizeC_2 + sizeC_Hi;
+    const size_t worksizeC      = Layout::bytes(NUM_MODULI, sizeC, lwork_blas, fastmode);
 
     void *const work_aligned  = common::align(work);
     void *const workA_aligned = (workA) ? common::align(workA) : nullptr;
@@ -115,6 +108,7 @@ inline std::vector<double> oz2_core(
         }
     }
     common::set_handle<BACKEND, FUNC>(stream, handle, ldc_hi, n_work, lda_lo, ldb_lo, ldb_lo, ldc_hi, lwork_blas, UPLO_A_handle, UPLO_B_handle);
+    handle.fp8_num_moduli = NUM_MODULI;
 
     // set timer
     std::vector<double> timer(4, 0.0);
@@ -139,7 +133,7 @@ inline std::vector<double> oz2_core(
         auto A_lo_high   = common::make_matptr<LowT, COMPLEX>(A_lo_base + ((enable_skip_scalA_eff && !fastmode) ? offsetA : 0u), sizeA);
         auto B_lo_high   = common::make_matptr<LowT, COMPLEX>(B_lo_base + ((enable_skip_scalB_eff && !fastmode) ? offsetB : 0u), sizeB);
         auto C_hi        = common::make_matptr<HiT, COMPLEX>(reinterpret_cast<HiT *>(C_work_base), sizeC);
-        handle.workspace = static_cast<void *>(C_work_base + sizeC_Hi);
+        handle.workspace = static_cast<void *>(C_work_base + Layout::norm_bytes(sizeC));
 
         scaling_accu<FUNC, TA, TB, BACKEND, NUM_MODULI, STRUCT_A, STRUCT_B, UPLO_A, UPLO_B, DIAG_A, DIAG_B, UPLO_C>(
             stream, handle, op_A, op_B, m, n, k,
@@ -150,58 +144,75 @@ inline std::vector<double> oz2_core(
 
     phase_timer.record(phase_timer.scaling_end(), stream);
 
-    for (unsigned i = 0; i < NUM_MODULI;) {
+    undo_scaling::crt_tail<BACKEND> tail{};
+    tail.grouped = common::use_grouped_crt(sizeC);
 
-        unsigned bcnt = batch_count<NUM_MODULI>(
-            handle.arch, n_work, i, sizeC_Mid, sizeC_Hi,
-            lwork_blas, worksizeC, pointer_products_per_modulus);
-        bcnt = limit_batch_for_k<BACKEND, COMPLEX>(i, bcnt, k_pad);
-        configure_matprod_k_blocking<BACKEND, COMPLEX>(handle, i, k_pad);
+    if (tail.grouped) {
+        tail.ptr0 = grouped_products<FUNC, BACKEND, NUM_MODULI, COMPLEX, UPLO_A, UPLO_B, UPLO_C, Layout>(
+            stream, handle, op_A, op_B, ldc_hi, n_work, k_pad, C_work_base, phase_timer,
+            [&](unsigned i, unsigned count, auto &C_hi) {
+                error_free_matmult<FUNC, BACKEND, COMPLEX, STRUCT_A, STRUCT_B, UPLO_A, UPLO_B, UPLO_C>(
+                    stream, handle, i, count, ldc_hi, n_work, lda_lo, ldb_lo,
+                    sizeA, sizeB, sizeC, op_A, op_B, A_lo, B_lo, C_hi);
+            });
+    } else {
+        for (unsigned i = 0; i < NUM_MODULI;) {
 
-        int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
+            unsigned bcnt = batch_count<NUM_MODULI, Layout>(
+                handle.arch, n_work, i, sizeC, lwork_blas, worksizeC);
+            bcnt = limit_batch_for_k<BACKEND, COMPLEX>(i, bcnt, k_pad, NUM_MODULI);
+            configure_matprod_k_blocking<BACKEND, COMPLEX>(handle, i, k_pad);
 
-        const size_t pointer_batch_count = use_pointer_arrays ? pointer_products_per_modulus * bcnt : 0u;
-        const size_t ptr_bytes           = use_pointer_arrays ? 3 * pointer_batch_count * sizeof(void *) : 0u;
-        const size_t ptr_gap             = use_pointer_arrays ? common::padding(ptr_bytes) : 0u;
+            int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
 
-        void **const Aarray = use_pointer_arrays ? reinterpret_cast<void **>(base) : nullptr;
-        void **const Barray = use_pointer_arrays ? reinterpret_cast<void **>(base + pointer_batch_count * sizeof(void *)) : nullptr;
-        void **const Carray = use_pointer_arrays ? reinterpret_cast<void **>(base + 2 * pointer_batch_count * sizeof(void *)) : nullptr;
+            const size_t pointer_batch_count = Layout::pointer_count(NUM_MODULI, i, bcnt);
+            const size_t ptr_gap             = Layout::pointer_bytes(NUM_MODULI, i, bcnt);
 
-        const size_t mid_bytes = bcnt * sizeC_Mid;
-        const size_t gap       = std::max<size_t>(ptr_gap + lwork_blas, mid_bytes);
+            void **const Aarray = use_pointer_arrays ? reinterpret_cast<void **>(base) : nullptr;
+            void **const Barray = use_pointer_arrays ? reinterpret_cast<void **>(base + pointer_batch_count * sizeof(void *)) : nullptr;
+            void **const Carray = use_pointer_arrays ? reinterpret_cast<void **>(base + 2 * pointer_batch_count * sizeof(void *)) : nullptr;
 
-        HiT *const C_hi  = reinterpret_cast<HiT *>(base + gap);
-        auto C_hi_matptr = common::make_matptr<HiT, COMPLEX, matmul_per_moduli>(C_hi, sizeC * num_C_hi);
+            const size_t mid_bytes = (i + 1u < NUM_MODULI) ? sizeC_Mid : 0u;
+            const size_t gap       = std::max<size_t>(ptr_gap + lwork_blas, mid_bytes);
 
-        handle.Aarray    = Aarray;
-        handle.Barray    = Barray;
-        handle.Carray    = Carray;
-        handle.workspace = static_cast<void *>(base + ptr_gap);
+            HiT *const C_hi  = reinterpret_cast<HiT *>(base + gap);
+            auto C_hi_matptr = common::make_matptr<HiT, COMPLEX, matmul_per_moduli>(C_hi, sizeC * Layout::products(NUM_MODULI, i));
 
-        // Error-free matrix multiplication C_hi := A_lo[i]*B_lo[i]
-        error_free_matmult<FUNC, BACKEND, COMPLEX, STRUCT_A, STRUCT_B, UPLO_A, UPLO_B, UPLO_C>(
-            stream, handle, i, bcnt,
-            ldc_hi, n_work, lda_lo, ldb_lo,
-            sizeA, sizeB, sizeC, op_A, op_B,
-            A_lo, B_lo, C_hi_matptr);
+            handle.Aarray    = Aarray;
+            handle.Barray    = Barray;
+            handle.Carray    = Carray;
+            handle.workspace = static_cast<void *>(base + ptr_gap);
 
-        const unsigned gid = phase_timer.begin_group();
-        phase_timer.record(phase_timer.mm_end(gid), stream);
+            // Error-free matrix multiplication C_hi := A_lo[i]*B_lo[i]
+            error_free_matmult<FUNC, BACKEND, COMPLEX, STRUCT_A, STRUCT_B, UPLO_A, UPLO_B, UPLO_C>(
+                stream, handle, i, bcnt,
+                ldc_hi, n_work, lda_lo, ldb_lo,
+                sizeA, sizeB, sizeC, op_A, op_B,
+                A_lo, B_lo, C_hi_matptr);
 
-        // C_mid[i] := mod(C_hi, p[i])
-        mod_hi2mid<FUNC, BACKEND, COMPLEX, UPLO_A, UPLO_B, UPLO_C>(
-            stream, op_A, op_B, i, bcnt, ldc_hi, n_work, C_hi_matptr, C_mid, incC_hi);
+            const unsigned gid = phase_timer.begin_group();
+            phase_timer.record(phase_timer.mm_end(gid), stream);
 
-        phase_timer.record(phase_timer.mod_hi2mid_end(gid), stream);
+            // C_mid[i] := mod(C_hi, p[i])
+            mod_hi2mid<FUNC, BACKEND, COMPLEX, UPLO_A, UPLO_B, UPLO_C>(
+                stream, op_A, op_B, i, bcnt - unsigned(i + bcnt == NUM_MODULI),
+                ldc_hi, n_work, C_hi_matptr, C_mid, NUM_MODULI);
 
-        i += bcnt;
+            if (i + bcnt == NUM_MODULI) {
+                tail.ptr0 = C_hi_matptr.ptr0;
+                if constexpr (COMPLEX) tail.ptr1 = tail.ptr0 + sizeC * Layout::products(NUM_MODULI, NUM_MODULI - 1U);
+            }
+
+            phase_timer.record(phase_timer.mod_hi2mid_end(gid), stream);
+
+            i += bcnt;
+        }
     }
 
     // C_mid --(CRT Reduction)--> Aint*Bint --(undo scaling)--> A*B
     // and C := alpha*AB + beta*C
     undo_scaling<FUNC, TC, BACKEND, NUM_MODULI, TAlpha, TBeta, UPLO_A, UPLO_B, UPLO_C>(
-        stream, op_A, op_B, m, n, C_mid, ldc_hi, sizeC, C, ldc, sftA, sftB, alpha, beta);
+        stream, op_A, op_B, m, n, C_mid, ldc_hi, sizeC, C, ldc, sftA, sftB, alpha, beta, tail);
 
     phase_timer.record(phase_timer.undo_scaling_end(), stream);
 
@@ -265,16 +276,14 @@ inline std::vector<double> oz2_core_rk(
 
     // Set workspace
     constexpr unsigned matmul_per_moduli = COMPLEX ? 2u : 1u;
-    constexpr unsigned num_C_hi          = (BACKEND == Backend::INT8) ? 1u : 3u;
     constexpr unsigned num_mat           = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX>;
 
-    const size_t offsetA             = sizeA * num_mat * matmul_per_moduli;
-    constexpr size_t lwork_blas      = size_t(32) << 20; // 32 MiB
-    const size_t sizeC_Mid           = sizeof(MidT) * sizeC;
-    constexpr unsigned product_parts = (FUNC == Func::herk) ? 1u : matmul_per_moduli;
-    const size_t incC_hi             = product_parts * num_C_hi * sizeC;
-    const size_t sizeC_Hi            = sizeof(HiT) * incC_hi;
-    const size_t worksizeC           = rankk_worksize_C<COMPLEX, BACKEND, FUNC == Func::herk>(sizeC, NUM_MODULI, fastmode);
+    using Layout = product_workspace<BACKEND, COMPLEX, FUNC == Func::herk>;
+
+    const size_t offsetA        = sizeA * num_mat * matmul_per_moduli;
+    constexpr size_t lwork_blas = size_t(32) << 20; // 32 MiB
+    const size_t sizeC_Mid      = sizeof(MidT) * sizeC;
+    const size_t worksizeC      = rankk_worksize_C<COMPLEX, BACKEND, FUNC == Func::herk>(sizeC, NUM_MODULI, fastmode);
 
     void *const work_aligned  = common::align(work);
     void *const workA_aligned = (workA) ? common::align(workA) : nullptr;
@@ -289,9 +298,10 @@ inline std::vector<double> oz2_core_rk(
 
     // Set handle
     common::set_handle<BACKEND, FUNC>(stream, handle, ldc_hi, n, lda_lo, lda_lo, lda_lo, ldc_hi, lwork_blas, UPLO_A, UPLO_B);
-    handle.Aarray = nullptr;
-    handle.Barray = nullptr;
-    handle.Carray = nullptr;
+    handle.Aarray         = nullptr;
+    handle.Barray         = nullptr;
+    handle.Carray         = nullptr;
+    handle.fp8_num_moduli = NUM_MODULI;
 
     // set timer
     std::vector<double> timer(4, 0.0);
@@ -321,44 +331,64 @@ inline std::vector<double> oz2_core_rk(
 
     phase_timer.record(phase_timer.scaling_end(), stream);
 
-    for (unsigned i = 0; i < NUM_MODULI;) {
+    undo_scaling::crt_tail<BACKEND> tail{};
+    tail.grouped = common::use_grouped_crt(sizeC);
 
-        unsigned bcnt = batch_count<NUM_MODULI>(
-            handle.arch, n, i, sizeC_Mid, sizeC_Hi, lwork_blas, worksizeC, 0u);
-        bcnt = limit_batch_for_k<BACKEND, COMPLEX>(i, bcnt, k_pad);
-        configure_matprod_k_blocking<BACKEND, COMPLEX>(handle, i, k_pad);
+    if (tail.grouped) {
+        tail.ptr0 = grouped_products<FUNC, BACKEND, NUM_MODULI, COMPLEX, UPLO_A, UPLO_B, UPLO_C, Layout>(
+            stream, handle, op_A, CUBLAS_OP_N, ldc_hi, n, k_pad, C_work_base, phase_timer,
+            [&](unsigned i, unsigned count, auto &C_hi) {
+                error_free_matmult_rk<FUNC, BACKEND, COMPLEX, UPLO_C>(
+                    stream, handle, i, count, ldc_hi, n, lda_lo, sizeA, sizeC, A_lo, C_hi);
+            });
+    } else {
+        for (unsigned i = 0; i < NUM_MODULI;) {
 
-        const size_t mid_bytes = bcnt * sizeC_Mid;
-        const size_t gap       = std::max<size_t>(lwork_blas, mid_bytes);
+            unsigned bcnt = batch_count<NUM_MODULI, Layout>(
+                handle.arch, n, i, sizeC, lwork_blas, worksizeC);
+            bcnt = limit_batch_for_k<BACKEND, COMPLEX>(i, bcnt, k_pad, NUM_MODULI);
+            configure_matprod_k_blocking<BACKEND, COMPLEX>(handle, i, k_pad);
 
-        int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
-        HiT *const C_hi    = reinterpret_cast<HiT *>(base + gap);
-        auto C_hi_matptr   = common::make_matptr<HiT, COMPLEX, matmul_per_moduli>(C_hi, sizeC * num_C_hi);
-        if constexpr (FUNC == Func::herk) {
-            C_hi_matptr.ptr1 = nullptr;
+            const size_t mid_bytes = (i + 1u < NUM_MODULI) ? sizeC_Mid : 0u;
+            const size_t gap       = std::max<size_t>(lwork_blas, mid_bytes);
+
+            int8_t *const base = C_work_base + size_t(i) * sizeC_Mid;
+            HiT *const C_hi    = reinterpret_cast<HiT *>(base + gap);
+            auto C_hi_matptr   = common::make_matptr<HiT, COMPLEX, matmul_per_moduli>(C_hi, sizeC * Layout::products(NUM_MODULI, i));
+            if constexpr (FUNC == Func::herk) {
+                C_hi_matptr.ptr1 = nullptr;
+            }
+            handle.workspace = static_cast<void *>(base);
+
+            // Error-free matrix multiplication C_hi := A_lo[i]*B_lo[i]
+            error_free_matmult_rk<FUNC, BACKEND, COMPLEX, UPLO_C>(
+                stream, handle, i, bcnt, ldc_hi, n, lda_lo, sizeA, sizeC, A_lo, C_hi_matptr);
+
+            const unsigned gid = phase_timer.begin_group();
+            phase_timer.record(phase_timer.mm_end(gid), stream);
+
+            // C_mid[i] := mod(C_hi, p[i])
+            mod_hi2mid<FUNC, BACKEND, COMPLEX, UPLO_A, UPLO_B, UPLO_C>(
+                stream, op_A, CUBLAS_OP_N, i, bcnt - unsigned(i + bcnt == NUM_MODULI),
+                ldc_hi, n, C_hi_matptr, C_mid, NUM_MODULI);
+
+            if (i + bcnt == NUM_MODULI) {
+                tail.ptr0 = C_hi_matptr.ptr0;
+                if constexpr (COMPLEX && FUNC != Func::herk)
+                    tail.ptr1 = tail.ptr0 + sizeC * Layout::products(NUM_MODULI, NUM_MODULI - 1U);
+                if constexpr (FUNC == Func::herk) tail.flip_imag = (op_A == CUBLAS_OP_N);
+            }
+
+            phase_timer.record(phase_timer.mod_hi2mid_end(gid), stream);
+
+            i += bcnt;
         }
-        handle.workspace = static_cast<void *>(base);
-
-        // Error-free matrix multiplication C_hi := A_lo[i]*B_lo[i]
-        error_free_matmult_rk<FUNC, BACKEND, COMPLEX, UPLO_C>(
-            stream, handle, i, bcnt, ldc_hi, n, lda_lo, sizeA, sizeC, A_lo, C_hi_matptr);
-
-        const unsigned gid = phase_timer.begin_group();
-        phase_timer.record(phase_timer.mm_end(gid), stream);
-
-        // C_mid[i] := mod(C_hi, p[i])
-        mod_hi2mid<FUNC, BACKEND, COMPLEX, UPLO_A, UPLO_B, UPLO_C>(
-            stream, op_A, CUBLAS_OP_N, i, bcnt, ldc_hi, n, C_hi_matptr, C_mid, incC_hi);
-
-        phase_timer.record(phase_timer.mod_hi2mid_end(gid), stream);
-
-        i += bcnt;
     }
 
     // C_mid --(CRT Reduction)--> Aint*Bint --(undo scaling)--> A*B
     // and C := alpha*AB + beta*C
     undo_scaling<FUNC, TC, BACKEND, NUM_MODULI, TAlpha, TBeta, UPLO_A, UPLO_B, UPLO_C>(
-        stream, op_A, CUBLAS_OP_N, n, n, C_mid, ldc_hi, sizeC, C, ldc, sftA, sftA, alpha, beta);
+        stream, op_A, CUBLAS_OP_N, n, n, C_mid, ldc_hi, sizeC, C, ldc, sftA, sftA, alpha, beta, tail);
 
     phase_timer.record(phase_timer.undo_scaling_end(), stream);
 

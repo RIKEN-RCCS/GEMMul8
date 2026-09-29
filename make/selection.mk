@@ -26,7 +26,7 @@ empty :=
 space := $(empty) $(empty)
 OPS_ID := $(if $(filter-out $(BUILD_OPS),$(ALL_OPS)),$(subst $(space),+,$(BUILD_OPS)),all)
 OZ2_ID := $(subst $(space),+,$(BUILD_OZ2_BACKENDS))
-BUILD_VARIANT := $(GPU_ARCH)/$(OPS_ID)/$(OZ2_ID)
+BUILD_VARIANT := $(GPU_ARCH)/$(OPS_ID)/$(OZ2_ID)/profile-$(PROFILE)
 BUILD_SIGNATURE := $(BACKEND)/$(BUILD_VARIANT)
 ACTIVE_CONFIG := build/active-config
 BUILD_MAKEFILES := Makefile $(wildcard make/*.mk) $(wildcard src/*/cu_recipe/instantiations.mk) \
@@ -35,6 +35,7 @@ BUILD_MAKEFILES := Makefile $(wildcard make/*.mk) $(wildcard src/*/cu_recipe/ins
 
 BUILD_DEFINES := $(foreach b,INT8 FP8,-DGEMMUL8_BUILD_$(b)=$(if $(filter $(b),$(BUILD_OZ2_BACKENDS)),1,0))
 BUILD_DEFINES += $(foreach op,$(ALL_OPS),-DGEMMUL8_BUILD_OP_$(op)=$(if $(filter $(op),$(BUILD_OPS)),1,0))
+BUILD_DEFINES += -DGEMMul8_PROFILE=$(GEMMUL8_PROFILE_VALUE)
 FLAGS_PIC += $(BUILD_DEFINES)
 
 # Every operation can use full-matrix scaling (including blocked off-diagonal

@@ -28,3 +28,15 @@ GPU_ARCH ?= auto
 
 # Temporary directory for compiler.
 TEMPDIR ?= build/tmp
+
+# Enable or disable internal phase profiling.
+# Valid values: on, off. Default: off.
+PROFILE ?= off
+
+ifeq ($(PROFILE),on)
+GEMMUL8_PROFILE_VALUE := 1
+else ifeq ($(PROFILE),off)
+GEMMUL8_PROFILE_VALUE := 0
+else
+$(error PROFILE must be on or off (got '$(PROFILE)'))
+endif

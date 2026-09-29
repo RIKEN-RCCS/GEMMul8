@@ -10,6 +10,20 @@ namespace gemmul8::common {
 inline constexpr auto GEMMul8_GEMM_ALGO = CUBLAS_GEMM_DEFAULT;
 // #endif
 
+#define GEMMul8_CUBLAS_GEMM(                           \
+    handle, transa, transb, m, n, k, alpha,            \
+    A, Atype, lda, B, Btype, ldb, beta, C, Ctype, ldc, \
+    computeType, algo)                                 \
+    cublasGemmStridedBatchedEx(                        \
+        (handle), (transa), (transb), (m), (n), (k),   \
+        (alpha),                                       \
+        (A), (Atype), (lda), 0LL,                      \
+        (B), (Btype), (ldb), 0LL,                      \
+        (beta),                                        \
+        (C), (Ctype), (ldc), 0LL,                      \
+        1, (computeType), (algo))
+// #define GEMMul8_CUBLAS_GEMM cublasGemmEx
+
 template <Backend BACKEND>
 inline void call_gemm_tn_raw(
     const cudaStream_t stream, Handle_t &h,
@@ -25,10 +39,11 @@ inline void call_gemm_tn_raw(
     constexpr auto COMP_TYPE   = (BACKEND == Backend::INT8) ? CUBLAS_COMPUTE_32I : CUBLAS_COMPUTE_32F;
 
     if (h.kind == HandleKind::cuBLAS) {
-        cublasGemmEx(h.cublas, CUBLAS_OP_T, CUBLAS_OP_N, m, n, k,
-                     alpha, A, CUDA_R_LOW, lda, B, CUDA_R_LOW, ldb,
-                     beta, C, CUDA_R_HIGH, ldc,
-                     COMP_TYPE, GEMMul8_GEMM_ALGO);
+        GEMMul8_CUBLAS_GEMM(
+            h.cublas, CUBLAS_OP_T, CUBLAS_OP_N, m, n, k,
+            alpha, A, CUDA_R_LOW, lda, B, CUDA_R_LOW, ldb,
+            beta, C, CUDA_R_HIGH, ldc,
+            COMP_TYPE, GEMMul8_GEMM_ALGO);
         return;
     }
 

@@ -21,7 +21,7 @@ This design enables bit-wise reproducible results while using low-precision matr
     - [HIP build](#hip-build)
 - [Running Test Codes](#running-test-codes)
   - [Test options](#test-options)
-  - [](#)
+  - [Build options](#build-options)
   - [Routine options](#routine-options)
   - [Precision options](#precision-options)
   - [Disable options](#disable-options)
@@ -84,7 +84,7 @@ When the input matrices have a wide dynamic range, accurate mode is more likely 
 
 ### Accuracy Guidelines
 
-As a practical rule of thumb, the following settings typically provide accuracy comparable to cuBLAS INT8-based fixed-point emulation with `mantissaBitCount = 55`, corresponding to INT8-based Ozaki Scheme I with 7 slices.
+As a practical rule of thumb, the following settings typically provide accuracy comparable to cuBLAS fixed-point emulation with `mantissaBitCount = 55`, corresponding to INT8-based Ozaki Scheme I with 7 slices.
 
 | Type    | Backend | `num_moduli` | `fastmode`         |
 | :------ | :------ | :----------- | :----------------- |
@@ -101,26 +101,26 @@ As a practical rule of thumb, the following settings typically provide accuracy 
 The following table shows the approximate effective bits for fixed-point emulation.
 
 | `num_moduli` | INT8-Real | INT8-Complex | FP8-Real | FP8-Complex |
-| :----------- | :-------- | :----------- | :------- | :---------- |
-| 2            | 8         | 8            | 11       | 11          |
-| 3            | 12        | 12           | 17       | 16          |
-| 4            | 16        | 16           | 22       | 21          |
-| 5            | 20        | 20           | 27       | 26          |
-| 6            | 24        | 23           | 33       | 31          |
-| 7            | 28        | 27           | 38       | 36          |
-| 8            | 32        | 31           | 43       | 41          |
-| 9            | 36        | 35           | 48       | 45          |
-| 10           | 40        | 38           | 53       | 50          |
-| 11           | 44        | 42           | 58       | 55          |
-| 12           | 47        | 45           | 63       | 60          |
-| 13           | 51        | 49           | 68       | 65          |
-| 14           | 55        | 52           | 73       | 70          |
-| 15           | 59        | 56           | 78       | 75          |
-| 16           | 63        | 59           | 83       | 79          |
-| 17           | 66        | 62           | 87       | 84          |
-| 18           | 70        | 65           | 92       | 89          |
-| 19           | 74        | 68           | 97       | 94          |
-| 20           | 78        | 71           | 102      | 99          |
+| :----------- | --------: | -----------: | -------: | ----------: |
+| 2            |         8 |            8 |       11 |          11 |
+| 3            |        12 |           12 |       17 |          16 |
+| 4            |        16 |           16 |       22 |          21 |
+| 5            |        20 |           20 |       27 |          26 |
+| 6            |        24 |           23 |       33 |          31 |
+| 7            |        28 |           27 |       38 |          36 |
+| 8            |        32 |           31 |       43 |          41 |
+| 9            |        36 |           35 |       48 |          45 |
+| 10           |        40 |           38 |       53 |          50 |
+| 11           |        44 |           42 |       58 |          55 |
+| 12           |        47 |           45 |       63 |          60 |
+| 13           |        51 |           49 |       68 |          65 |
+| 14           |        55 |           52 |       73 |          70 |
+| 15           |        59 |           56 |       78 |          75 |
+| 16           |        63 |           59 |       83 |          79 |
+| 17           |        66 |           62 |       87 |          84 |
+| 18           |        70 |           65 |       92 |          89 |
+| 19           |        74 |           68 |       97 |          94 |
+| 20           |        78 |           71 |      102 |          99 |
 
 ### Complex-valued operations
 
@@ -199,6 +199,7 @@ make -j$(nproc)
 | `OPS`          | `all`             | Select operation families for compilation.<br>Examples: `OPS="gemm trmm"` (Builds only gemm and trmm).            |
 | `OZ2_BACKENDS` | `INT8 FP8`        | Select emulation backends for compilation.<br>Examples: `OZ2_BACKENDS="INT8"` (Builds only INT8-based emulation). |
 | `TEMPDIR`      | `build/tmp`       | Temporary directory used by the compiler.                                                                         |
+| `PROFILE`      | `off`             | Enable (on) or disable (off) internal phase profiling.                                                            |
 
 > [!NOTE]
 >
@@ -214,6 +215,12 @@ Build for an NVIDIA H100/H200 GPU (Compute Capability 9.0):
 
 ```bash
 make -j$(nproc) BACKEND=cuda CUDA_PATH=/usr/local/cuda GPU_ARCH=90
+```
+
+Build for an NVIDIA B200 GPU (Compute Capability 10.0) with profiling:
+
+```bash
+make -j$(nproc) BACKEND=cuda CUDA_PATH=/usr/local/cuda GPU_ARCH=100 PROFILE=on
 ```
 
 Build only GEMM and TRMM with the INT8 backend for an NVIDIA H100/H200 GPU:
@@ -254,7 +261,7 @@ make run MODE="<test-option>... <routine-option>... <precision-option>... [disab
 | `time_square`        | Run timing tests for square matrices        |
 | `time_rectangle`     | Run timing tests for rectangular matrices   |
 
-###
+### Build options
 
 | Option         | Default    | Description                                                                                                       |
 | :------------- | :--------- | :---------------------------------------------------------------------------------------------------------------- |
@@ -473,6 +480,9 @@ t[1]: low-precision matrix multiplication
 t[2]: re-quantization of matrix products
 t[3]: final CRT reduction and undo scaling
 ```
+
+When the library is built with the default `PROFILE=off`, the four internal phase timings are returned as `0.0`.
+Build with `PROFILE=on` to enable phase timings.
 
 For `trsm`, the returned vector has a different meaning:
 
@@ -1180,6 +1190,7 @@ The following individuals helped conduct preliminary experiments on the B200 env
 - Kawakami S. (2026). GEMMul8 (fork with improved fast mode scaling), GitHub, [https://github.com/kotatsumuri/GEMMul8](https://github.com/kotatsumuri/GEMMul8).
 - Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). DGEMM with Ozaki Scheme I/II on FP4 Tensor Cores: A Base-13 E2M1 Limb Representation, [doi.org/10.48550/arXiv.2608.06812](https://doi.org/10.48550/arXiv.2608.06812).
 - Caday P. (2026). The 2M Multiplication Algorithm for Complex Matrices, [doi.org/10.48550/arXiv.2609.05419](https://doi.org/10.48550/arXiv.2609.05419).
+- Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). AWE: Adaptive Weight Encoding for Exact Integer Matrix Products with Fewer GEMMs on FP4 Tensor Cores, [doi.org/10.48550/arXiv.2609.24519](https://doi.org/10.48550/arXiv.2609.24519).
 
 ## Citations
 
@@ -1189,6 +1200,7 @@ The following individuals helped conduct preliminary experiments on the B200 env
 >
 > - Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
 > - Caday P. (2026). The 2M Multiplication Algorithm for Complex Matrices, [doi.org/10.48550/arXiv.2609.05419](https://doi.org/10.48550/arXiv.2609.05419).
+> - Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). AWE: Adaptive Weight Encoding for Exact Integer Matrix Products with Fewer GEMMs on FP4 Tensor Cores, [doi.org/10.48550/arXiv.2609.24519](https://doi.org/10.48550/arXiv.2609.24519).
 
 ```bibtex
 @inproceedings{10.1145/3731599.3767539,

@@ -32,9 +32,7 @@ __global__ void mod_reduce_matprod_kernel(
     const int64_t i = int64_t(blockIdx.x * blockDim.x + threadIdx.x);
     const int64_t j = int64_t(blockIdx.y * blockDim.y + threadIdx.y);
 
-    if (i >= m || j >= n) {
-        return;
-    }
+    if (i >= m || j >= n) return;
 
     common::hi_t<BACKEND> *ptr = C + j * ldc + i;
     *ptr                       = mod_reduce_matprod_core<BACKEND, IDX, COMPLEX>(*ptr);
@@ -48,9 +46,7 @@ inline void mod_reduce_matprod_launch(
     const int n,
     const size_t ldc //
 ) {
-    if (m == 0 || n == 0) {
-        return;
-    }
+    if (m == 0 || n == 0) return;
 
     constexpr int TX = 32;
     constexpr int TY = 8;
@@ -62,6 +58,11 @@ inline void mod_reduce_matprod_launch(
         C, int64_t(m), int64_t(n), int64_t(ldc));
 }
 
+#define GEMMUL8_FP8_REDUCE_CASE(P)                                                         \
+    case P + 20U: {                                                                        \
+        return mod_reduce_matprod_launch<BACKEND, P + 20U, COMPLEX>(stream, C, m, n, ldc); \
+    }
+
 template <Backend BACKEND, bool COMPLEX>
 void mod_reduce_matprod_dispatch(
     const cudaStream_t stream,
@@ -71,30 +72,37 @@ void mod_reduce_matprod_dispatch(
     const size_t ldc,
     const unsigned modulus_idx //
 ) {
-    switch (modulus_idx) {
-    case 0U: return mod_reduce_matprod_launch<BACKEND, 0U, COMPLEX>(stream, C, m, n, ldc);
-    case 1U: return mod_reduce_matprod_launch<BACKEND, 1U, COMPLEX>(stream, C, m, n, ldc);
-    case 2U: return mod_reduce_matprod_launch<BACKEND, 2U, COMPLEX>(stream, C, m, n, ldc);
-    case 3U: return mod_reduce_matprod_launch<BACKEND, 3U, COMPLEX>(stream, C, m, n, ldc);
-    case 4U: return mod_reduce_matprod_launch<BACKEND, 4U, COMPLEX>(stream, C, m, n, ldc);
-    case 5U: return mod_reduce_matprod_launch<BACKEND, 5U, COMPLEX>(stream, C, m, n, ldc);
-    case 6U: return mod_reduce_matprod_launch<BACKEND, 6U, COMPLEX>(stream, C, m, n, ldc);
-    case 7U: return mod_reduce_matprod_launch<BACKEND, 7U, COMPLEX>(stream, C, m, n, ldc);
-    case 8U: return mod_reduce_matprod_launch<BACKEND, 8U, COMPLEX>(stream, C, m, n, ldc);
-    case 9U: return mod_reduce_matprod_launch<BACKEND, 9U, COMPLEX>(stream, C, m, n, ldc);
-    case 10U: return mod_reduce_matprod_launch<BACKEND, 10U, COMPLEX>(stream, C, m, n, ldc);
-    case 11U: return mod_reduce_matprod_launch<BACKEND, 11U, COMPLEX>(stream, C, m, n, ldc);
-    case 12U: return mod_reduce_matprod_launch<BACKEND, 12U, COMPLEX>(stream, C, m, n, ldc);
-    case 13U: return mod_reduce_matprod_launch<BACKEND, 13U, COMPLEX>(stream, C, m, n, ldc);
-    case 14U: return mod_reduce_matprod_launch<BACKEND, 14U, COMPLEX>(stream, C, m, n, ldc);
-    case 15U: return mod_reduce_matprod_launch<BACKEND, 15U, COMPLEX>(stream, C, m, n, ldc);
-    case 16U: return mod_reduce_matprod_launch<BACKEND, 16U, COMPLEX>(stream, C, m, n, ldc);
-    case 17U: return mod_reduce_matprod_launch<BACKEND, 17U, COMPLEX>(stream, C, m, n, ldc);
-    case 18U: return mod_reduce_matprod_launch<BACKEND, 18U, COMPLEX>(stream, C, m, n, ldc);
-    case 19U: return mod_reduce_matprod_launch<BACKEND, 19U, COMPLEX>(stream, C, m, n, ldc);
-    default: break;
+    if constexpr (BACKEND == Backend::FP8) {
+        switch (modulus_idx) {
+            GEMMUL8_FP8_FOR_EACH_MODULUS(GEMMUL8_FP8_REDUCE_CASE)
+        }
+    } else {
+        switch (modulus_idx) {
+        case 0U: return mod_reduce_matprod_launch<BACKEND, 0U, COMPLEX>(stream, C, m, n, ldc);
+        case 1U: return mod_reduce_matprod_launch<BACKEND, 1U, COMPLEX>(stream, C, m, n, ldc);
+        case 2U: return mod_reduce_matprod_launch<BACKEND, 2U, COMPLEX>(stream, C, m, n, ldc);
+        case 3U: return mod_reduce_matprod_launch<BACKEND, 3U, COMPLEX>(stream, C, m, n, ldc);
+        case 4U: return mod_reduce_matprod_launch<BACKEND, 4U, COMPLEX>(stream, C, m, n, ldc);
+        case 5U: return mod_reduce_matprod_launch<BACKEND, 5U, COMPLEX>(stream, C, m, n, ldc);
+        case 6U: return mod_reduce_matprod_launch<BACKEND, 6U, COMPLEX>(stream, C, m, n, ldc);
+        case 7U: return mod_reduce_matprod_launch<BACKEND, 7U, COMPLEX>(stream, C, m, n, ldc);
+        case 8U: return mod_reduce_matprod_launch<BACKEND, 8U, COMPLEX>(stream, C, m, n, ldc);
+        case 9U: return mod_reduce_matprod_launch<BACKEND, 9U, COMPLEX>(stream, C, m, n, ldc);
+        case 10U: return mod_reduce_matprod_launch<BACKEND, 10U, COMPLEX>(stream, C, m, n, ldc);
+        case 11U: return mod_reduce_matprod_launch<BACKEND, 11U, COMPLEX>(stream, C, m, n, ldc);
+        case 12U: return mod_reduce_matprod_launch<BACKEND, 12U, COMPLEX>(stream, C, m, n, ldc);
+        case 13U: return mod_reduce_matprod_launch<BACKEND, 13U, COMPLEX>(stream, C, m, n, ldc);
+        case 14U: return mod_reduce_matprod_launch<BACKEND, 14U, COMPLEX>(stream, C, m, n, ldc);
+        case 15U: return mod_reduce_matprod_launch<BACKEND, 15U, COMPLEX>(stream, C, m, n, ldc);
+        case 16U: return mod_reduce_matprod_launch<BACKEND, 16U, COMPLEX>(stream, C, m, n, ldc);
+        case 17U: return mod_reduce_matprod_launch<BACKEND, 17U, COMPLEX>(stream, C, m, n, ldc);
+        case 18U: return mod_reduce_matprod_launch<BACKEND, 18U, COMPLEX>(stream, C, m, n, ldc);
+        case 19U: return mod_reduce_matprod_launch<BACKEND, 19U, COMPLEX>(stream, C, m, n, ldc);
+        }
     }
 }
+
+#undef GEMMUL8_FP8_REDUCE_CASE
 
 template <Backend BACKEND, unsigned IDX, bool COMPLEX>
 __global__ void mod_reduce_matprod_strided_kernel(
@@ -109,9 +117,7 @@ __global__ void mod_reduce_matprod_strided_kernel(
     const int64_t j = int64_t(blockIdx.y * blockDim.y + threadIdx.y);
     const int b     = int(blockIdx.z);
 
-    if (i >= m || j >= n || b >= batchCount) {
-        return;
-    }
+    if (i >= m || j >= n || b >= batchCount) return;
 
     common::hi_t<BACKEND> *ptr = C + b * strideC + j * ldc + i;
     *ptr                       = mod_reduce_matprod_core<BACKEND, IDX, COMPLEX>(*ptr);
@@ -127,9 +133,7 @@ inline void mod_reduce_matprod_strided_launch(
     const int64_t strideC,
     const int batchCount //
 ) {
-    if (m == 0 || n == 0 || batchCount == 0) {
-        return;
-    }
+    if (m == 0 || n == 0 || batchCount == 0) return;
 
     constexpr int TX = 32;
     constexpr int TY = 8;
@@ -142,6 +146,12 @@ inline void mod_reduce_matprod_strided_launch(
         strideC, batchCount);
 }
 
+#define GEMMUL8_FP8_REDUCE_CASE(P)                                           \
+    case P + 20U: {                                                          \
+        return mod_reduce_matprod_strided_launch<BACKEND, P + 20U, COMPLEX>( \
+            stream, C, m, n, ldc, strideC, batchCount);                      \
+    }
+
 template <Backend BACKEND, bool COMPLEX>
 void mod_reduce_matprod_strided_dispatch(
     const cudaStream_t stream,
@@ -153,30 +163,37 @@ void mod_reduce_matprod_strided_dispatch(
     const int batchCount,
     const unsigned modulus_idx //
 ) {
-    switch (modulus_idx) {
-    case 0U: return mod_reduce_matprod_strided_launch<BACKEND, 0U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 1U: return mod_reduce_matprod_strided_launch<BACKEND, 1U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 2U: return mod_reduce_matprod_strided_launch<BACKEND, 2U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 3U: return mod_reduce_matprod_strided_launch<BACKEND, 3U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 4U: return mod_reduce_matprod_strided_launch<BACKEND, 4U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 5U: return mod_reduce_matprod_strided_launch<BACKEND, 5U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 6U: return mod_reduce_matprod_strided_launch<BACKEND, 6U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 7U: return mod_reduce_matprod_strided_launch<BACKEND, 7U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 8U: return mod_reduce_matprod_strided_launch<BACKEND, 8U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 9U: return mod_reduce_matprod_strided_launch<BACKEND, 9U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 10U: return mod_reduce_matprod_strided_launch<BACKEND, 10U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 11U: return mod_reduce_matprod_strided_launch<BACKEND, 11U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 12U: return mod_reduce_matprod_strided_launch<BACKEND, 12U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 13U: return mod_reduce_matprod_strided_launch<BACKEND, 13U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 14U: return mod_reduce_matprod_strided_launch<BACKEND, 14U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 15U: return mod_reduce_matprod_strided_launch<BACKEND, 15U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 16U: return mod_reduce_matprod_strided_launch<BACKEND, 16U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 17U: return mod_reduce_matprod_strided_launch<BACKEND, 17U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 18U: return mod_reduce_matprod_strided_launch<BACKEND, 18U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    case 19U: return mod_reduce_matprod_strided_launch<BACKEND, 19U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
-    default: break;
+    if constexpr (BACKEND == Backend::FP8) {
+        switch (modulus_idx) {
+            GEMMUL8_FP8_FOR_EACH_MODULUS(GEMMUL8_FP8_REDUCE_CASE)
+        }
+    } else {
+        switch (modulus_idx) {
+        case 0U: return mod_reduce_matprod_strided_launch<BACKEND, 0U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 1U: return mod_reduce_matprod_strided_launch<BACKEND, 1U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 2U: return mod_reduce_matprod_strided_launch<BACKEND, 2U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 3U: return mod_reduce_matprod_strided_launch<BACKEND, 3U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 4U: return mod_reduce_matprod_strided_launch<BACKEND, 4U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 5U: return mod_reduce_matprod_strided_launch<BACKEND, 5U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 6U: return mod_reduce_matprod_strided_launch<BACKEND, 6U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 7U: return mod_reduce_matprod_strided_launch<BACKEND, 7U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 8U: return mod_reduce_matprod_strided_launch<BACKEND, 8U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 9U: return mod_reduce_matprod_strided_launch<BACKEND, 9U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 10U: return mod_reduce_matprod_strided_launch<BACKEND, 10U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 11U: return mod_reduce_matprod_strided_launch<BACKEND, 11U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 12U: return mod_reduce_matprod_strided_launch<BACKEND, 12U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 13U: return mod_reduce_matprod_strided_launch<BACKEND, 13U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 14U: return mod_reduce_matprod_strided_launch<BACKEND, 14U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 15U: return mod_reduce_matprod_strided_launch<BACKEND, 15U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 16U: return mod_reduce_matprod_strided_launch<BACKEND, 16U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 17U: return mod_reduce_matprod_strided_launch<BACKEND, 17U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 18U: return mod_reduce_matprod_strided_launch<BACKEND, 18U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        case 19U: return mod_reduce_matprod_strided_launch<BACKEND, 19U, COMPLEX>(stream, C, m, n, ldc, strideC, batchCount);
+        }
     }
 }
+
+#undef GEMMUL8_FP8_REDUCE_CASE
 
 template <Backend BACKEND, unsigned IDX, bool COMPLEX>
 __global__ void mod_reduce_matprod_pointer_and_advance_kernel(
@@ -193,9 +210,7 @@ __global__ void mod_reduce_matprod_pointer_and_advance_kernel(
     const int64_t j = int64_t(blockIdx.y * blockDim.y + threadIdx.y);
     const int b     = int(blockIdx.z);
 
-    if (b >= batchCount) {
-        return;
-    }
+    if (b >= batchCount) return;
 
     if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0) {
         using LowT = common::low_t<BACKEND>;
@@ -203,9 +218,7 @@ __global__ void mod_reduce_matprod_pointer_and_advance_kernel(
         Barray[b]  = reinterpret_cast<LowT *>(Barray[b]) + k_advance;
     }
 
-    if (i >= m || j >= n) {
-        return;
-    }
+    if (i >= m || j >= n) return;
 
     common::hi_t<BACKEND> *C   = reinterpret_cast<common::hi_t<BACKEND> *>(Carray[b]);
     common::hi_t<BACKEND> *ptr = C + j * ldc + i;
@@ -224,9 +237,7 @@ inline void mod_reduce_matprod_pointer_and_advance_launch(
     const int batchCount,
     const int k_advance //
 ) {
-    if (m == 0 || n == 0 || batchCount == 0) {
-        return;
-    }
+    if (m == 0 || n == 0 || batchCount == 0) return;
 
     constexpr int TX = 32;
     constexpr int TY = 8;
@@ -239,6 +250,12 @@ inline void mod_reduce_matprod_pointer_and_advance_launch(
         int64_t(m), int64_t(n), int64_t(ldc),
         batchCount, k_advance);
 }
+
+#define GEMMUL8_FP8_REDUCE_CASE(P)                                                       \
+    case P + 20U: {                                                                      \
+        return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, P + 20U, COMPLEX>( \
+            stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);           \
+    }
 
 template <Backend BACKEND, bool COMPLEX>
 void mod_reduce_matprod_pointer_and_advance_dispatch(
@@ -253,30 +270,37 @@ void mod_reduce_matprod_pointer_and_advance_dispatch(
     const int k_advance,
     const unsigned modulus_idx //
 ) {
-    switch (modulus_idx) {
-    case 0U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 0U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 1U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 1U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 2U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 2U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 3U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 3U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 4U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 4U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 5U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 5U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 6U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 6U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 7U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 7U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 8U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 8U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 9U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 9U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 10U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 10U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 11U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 11U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 12U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 12U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 13U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 13U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 14U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 14U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 15U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 15U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 16U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 16U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 17U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 17U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 18U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 18U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    case 19U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 19U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
-    default: break;
+    if constexpr (BACKEND == Backend::FP8) {
+        switch (modulus_idx) {
+            GEMMUL8_FP8_FOR_EACH_MODULUS(GEMMUL8_FP8_REDUCE_CASE)
+        }
+    } else {
+        switch (modulus_idx) {
+        case 0U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 0U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 1U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 1U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 2U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 2U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 3U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 3U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 4U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 4U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 5U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 5U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 6U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 6U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 7U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 7U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 8U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 8U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 9U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 9U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 10U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 10U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 11U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 11U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 12U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 12U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 13U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 13U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 14U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 14U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 15U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 15U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 16U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 16U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 17U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 17U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 18U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 18U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        case 19U: return mod_reduce_matprod_pointer_and_advance_launch<BACKEND, 19U, COMPLEX>(stream, Aarray, Barray, Carray, m, n, ldc, batchCount, k_advance);
+        }
     }
 }
+
+#undef GEMMUL8_FP8_REDUCE_CASE
 
 template <Backend BACKEND>
 void mod_reduce_matprod(

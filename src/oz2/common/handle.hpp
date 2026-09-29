@@ -50,7 +50,7 @@ inline int block_size_setting(int arch, cublasFillMode_t uplo_A, cublasFillMode_
         // gemm, symm, syr2k, her2k, hemm, her2k, trsm
         switch (arch) {
         case 90: return 8192;
-        default: return 65536;
+        default: return 16384;
         }
     }
 }
@@ -170,6 +170,7 @@ struct Handle_t {
     int matprod_k_block_first = 0;
     int matprod_k_block_next  = 0;
     unsigned modulus_idx      = 0;
+    unsigned fp8_num_moduli   = 0;
 
     Handle_t(CublasTag, cublasHandle_t h)
         : kind(HandleKind::cuBLAS), config(config::get_config(h)), cublas(h) {}

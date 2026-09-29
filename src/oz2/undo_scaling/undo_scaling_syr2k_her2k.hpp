@@ -64,15 +64,16 @@ __device__ __forceinline__ T r2k_update_special(const T Dij, const T Dji, const 
     return C_new;
 }
 
-template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI, typename TP,
-          cublasFillMode_t UPLO, typename TAlpha, typename TBeta>
+template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI,
+          cublasFillMode_t UPLO, typename TAlpha, typename TBeta,
+          bool GROUPED = false>
 __global__ void undo_scaling_r2k_offdiag_kernel(
     const TAlpha alpha, const TBeta beta,
     const unsigned n,
     const common::mid_t<BACKEND, common::isComplex<T>> *const __restrict__ C_mid,
     const size_t ldc_mid, const size_t incC_mid,
     T *const __restrict__ C, const size_t ldc,
-    const TP P, const double invP,
+    const crt_tail<BACKEND> tail,
     const int16_t *const __restrict__ sftA,
     const int16_t *const __restrict__ sftB //
 ) {
@@ -103,8 +104,8 @@ __global__ void undo_scaling_r2k_offdiag_kernel(
         if (row < n && col < n) {
             const size_t idx_ji = col * ldc_mid + row;
 
-            const TCrt Dji_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, TP>(
-                C_mid + idx_ji, incC_mid, P, invP);
+            const TCrt Dji_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, GROUPED>(
+                C_mid + idx_ji, incC_mid, tail, idx_ji);
 
             const int32_t sft_ji  = int32_t(sftA[row]) + int32_t(sftB[col]);
             const TCrt Dji_scaled = rescale_crt<TCrt>(Dji_crt, sft_ji);
@@ -123,8 +124,8 @@ __global__ void undo_scaling_r2k_offdiag_kernel(
         if (row < n && col < n) {
             const size_t idx_ij = col * ldc_mid + row;
 
-            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, TP>(
-                C_mid + idx_ij, incC_mid, P, invP);
+            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, GROUPED>(
+                C_mid + idx_ij, incC_mid, tail, idx_ij);
 
             const int32_t sft_ij  = int32_t(sftA[row]) + int32_t(sftB[col]);
             const TCrt Dij_scaled = rescale_crt<TCrt>(Dij_crt, sft_ij);
@@ -141,14 +142,15 @@ __global__ void undo_scaling_r2k_offdiag_kernel(
     }
 }
 
-template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI, typename TP,
-          cublasFillMode_t UPLO, int ALPHA, int BETA>
+template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI,
+          cublasFillMode_t UPLO, int ALPHA, int BETA,
+          bool GROUPED = false>
 __global__ void undo_scaling_r2k_offdiag_kernel_special(
     const unsigned n,
     const common::mid_t<BACKEND, common::isComplex<T>> *const __restrict__ C_mid,
     const size_t ldc_mid, const size_t incC_mid,
     T *const __restrict__ C, const size_t ldc,
-    const TP P, const double invP,
+    const crt_tail<BACKEND> tail,
     const int16_t *const __restrict__ sftA,
     const int16_t *const __restrict__ sftB //
 ) {
@@ -179,8 +181,8 @@ __global__ void undo_scaling_r2k_offdiag_kernel_special(
         if (row < n && col < n) {
             const size_t idx_ji = col * ldc_mid + row;
 
-            const TCrt Dji_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, TP>(
-                C_mid + idx_ji, incC_mid, P, invP);
+            const TCrt Dji_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, GROUPED>(
+                C_mid + idx_ji, incC_mid, tail, idx_ji);
 
             const int32_t sft_ji  = int32_t(sftA[row]) + int32_t(sftB[col]);
             const TCrt Dji_scaled = rescale_crt<TCrt>(Dji_crt, sft_ji);
@@ -199,8 +201,8 @@ __global__ void undo_scaling_r2k_offdiag_kernel_special(
         if (row < n && col < n) {
             const size_t idx_ij = col * ldc_mid + row;
 
-            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, TP>(
-                C_mid + idx_ij, incC_mid, P, invP);
+            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, GROUPED>(
+                C_mid + idx_ij, incC_mid, tail, idx_ij);
 
             const int32_t sft_ij  = int32_t(sftA[row]) + int32_t(sftB[col]);
             const TCrt Dij_scaled = rescale_crt<TCrt>(Dij_crt, sft_ij);
@@ -213,15 +215,16 @@ __global__ void undo_scaling_r2k_offdiag_kernel_special(
     }
 }
 
-template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI, typename TP,
-          cublasFillMode_t UPLO, typename TAlpha, typename TBeta>
+template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI,
+          cublasFillMode_t UPLO, typename TAlpha, typename TBeta,
+          bool GROUPED = false>
 __global__ void undo_scaling_r2k_diag_kernel(
     const TAlpha alpha, const TBeta beta,
     const unsigned n,
     const common::mid_t<BACKEND, common::isComplex<T>> *const __restrict__ C_mid,
     const size_t ldc_mid, const size_t incC_mid,
     T *const __restrict__ C, const size_t ldc,
-    const TP P, const double invP,
+    const crt_tail<BACKEND> tail,
     const int16_t *const __restrict__ sftA,
     const int16_t *const __restrict__ sftB //
 ) {
@@ -243,8 +246,8 @@ __global__ void undo_scaling_r2k_diag_kernel(
         if (row < n && col < n) {
             const size_t idx = col * ldc_mid + row;
 
-            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, TP>(
-                C_mid + idx, incC_mid, P, invP);
+            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, GROUPED>(
+                C_mid + idx, incC_mid, tail, idx);
 
             const int32_t sft_ij  = int32_t(sftA[row]) + int32_t(sftB[col]);
             const TCrt Dij_scaled = rescale_crt<TCrt>(Dij_crt, sft_ij);
@@ -278,14 +281,15 @@ __global__ void undo_scaling_r2k_diag_kernel(
     }
 }
 
-template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI, typename TP,
-          cublasFillMode_t UPLO, int ALPHA, int BETA>
+template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI,
+          cublasFillMode_t UPLO, int ALPHA, int BETA,
+          bool GROUPED = false>
 __global__ void undo_scaling_r2k_diag_kernel_special(
     const unsigned n,
     const common::mid_t<BACKEND, common::isComplex<T>> *const __restrict__ C_mid,
     const size_t ldc_mid, const size_t incC_mid,
     T *const __restrict__ C, const size_t ldc,
-    const TP P, const double invP,
+    const crt_tail<BACKEND> tail,
     const int16_t *const __restrict__ sftA,
     const int16_t *const __restrict__ sftB //
 ) {
@@ -307,8 +311,8 @@ __global__ void undo_scaling_r2k_diag_kernel_special(
         if (row < n && col < n) {
             const size_t idx = col * ldc_mid + row;
 
-            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, TP>(
-                C_mid + idx, incC_mid, P, invP);
+            const TCrt Dij_crt = reconstruct_from_crt<TCrt, BACKEND, NUM_MODULI, GROUPED>(
+                C_mid + idx, incC_mid, tail, idx);
 
             const int32_t sft_ij  = int32_t(sftA[row]) + int32_t(sftB[col]);
             const TCrt Dij_scaled = rescale_crt<TCrt>(Dij_crt, sft_ij);
@@ -340,26 +344,22 @@ __global__ void undo_scaling_r2k_diag_kernel_special(
 }
 
 template <bool HER2K, typename T, typename TAlpha, typename TBeta,
-          Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO>
-inline void undo_scaling_r2k_launch(
+          Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO,
+          bool GROUPED>
+inline void undo_scaling_r2k_launch_impl(
     const cudaStream_t stream,
     const unsigned n,
     common::mid_t<BACKEND, common::isComplex<T>> *C_mid,
     const size_t ldc_mid, const size_t incC_mid,
     T *const C, const size_t ldc,
     const int16_t *const sftA, const int16_t *const sftB,
-    const TAlpha *const alpha, const TBeta *const beta //
+    const TAlpha *const alpha, const TBeta *const beta,
+    const crt_tail<BACKEND> tail //
 ) {
     constexpr dim3 threads(threads_x_r2k, threads_y_r2k);
     const unsigned nt = (n + threads_x_r2k - 1) / threads_x_r2k;
     const dim3 grid_offdiag(nt, nt);
     const dim3 grid_diag(nt);
-
-    constexpr bool is_float = std::is_same_v<common::underlying_t<T>, float>;
-    constexpr bool small_NM = NUM_MODULI <= common::threshold<BACKEND, common::isComplex<T>>::P_is_double;
-    using TP                = std::conditional_t<is_float || small_NM, double, double2>;
-    const TP P              = common::table::get_P<BACKEND, TP, common::isComplex<T>>(NUM_MODULI);
-    const double invP       = common::table::get_invP<BACKEND, common::isComplex<T>>(NUM_MODULI);
 
     const bool alpha_dev = is_device_pointer(alpha);
     const bool beta_dev  = is_device_pointer(beta);
@@ -376,13 +376,13 @@ inline void undo_scaling_r2k_launch(
         alpha_t alpha_d = alpha_t(alpha);
         beta_t beta_d   = beta_t(beta);
 
-        undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, alpha_t, beta_t>
+        undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED>
             <<<grid_offdiag, threads, 0, stream>>>(
-                alpha_d, beta_d, n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                alpha_d, beta_d, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-        undo_scaling_r2k_diag_kernel<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, alpha_t, beta_t>
+        undo_scaling_r2k_diag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED>
             <<<grid_diag, threads, 0, stream>>>(
-                alpha_d, beta_d, n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                alpha_d, beta_d, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
         return;
     }
 
@@ -391,70 +391,70 @@ inline void undo_scaling_r2k_launch(
 
     if (is_one_h(alpha_v)) {
         if (is_zero_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, 1, 0>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 0, GROUPED>
                 <<<grid_offdiag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, 1, 0>
+            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 0, GROUPED>
                 <<<grid_diag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
         }
 
         if (is_one_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, 1, 1>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 1, GROUPED>
                 <<<grid_offdiag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, 1, 1>
+            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 1, GROUPED>
                 <<<grid_diag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
         }
 
         if (is_mone_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, 1, -1>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, -1, GROUPED>
                 <<<grid_offdiag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, 1, -1>
+            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, -1, GROUPED>
                 <<<grid_diag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
         }
     }
 
     if (is_mone_h(alpha_v)) {
         if (is_zero_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, -1, 0>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 0, GROUPED>
                 <<<grid_offdiag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, -1, 0>
+            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 0, GROUPED>
                 <<<grid_diag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
         }
 
         if (is_one_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, -1, 1>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 1, GROUPED>
                 <<<grid_offdiag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, -1, 1>
+            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 1, GROUPED>
                 <<<grid_diag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
         }
 
         if (is_mone_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, -1, -1>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, -1, GROUPED>
                 <<<grid_offdiag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, -1, -1>
+            undo_scaling_r2k_diag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, -1, GROUPED>
                 <<<grid_diag, threads, 0, stream>>>(
-                    n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+                    n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
         }
     }
@@ -465,13 +465,34 @@ inline void undo_scaling_r2k_launch(
     alpha_t alpha_h = alpha_t(alpha_v);
     beta_t beta_h   = beta_t(beta_v);
 
-    undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, alpha_t, beta_t>
+    undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED>
         <<<grid_offdiag, threads, 0, stream>>>(
-            alpha_h, beta_h, n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+            alpha_h, beta_h, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
-    undo_scaling_r2k_diag_kernel<HER2K, T, BACKEND, NUM_MODULI, TP, UPLO, alpha_t, beta_t>
+    undo_scaling_r2k_diag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED>
         <<<grid_diag, threads, 0, stream>>>(
-            alpha_h, beta_h, n, C_mid, ldc_mid, incC_mid, C, ldc, P, invP, sftA, sftB);
+            alpha_h, beta_h, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
+}
+
+template <bool HER2K, typename T, typename TAlpha, typename TBeta,
+          Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO>
+inline void undo_scaling_r2k_launch(
+    cudaStream_t stream,
+    unsigned n,
+    common::mid_t<BACKEND, common::isComplex<T>> *C_mid,
+    size_t ldc_mid, size_t incC_mid,
+    T *C, size_t ldc,
+    const int16_t *sftA, const int16_t *sftB,
+    const TAlpha *alpha, const TBeta *beta,
+    crt_tail<BACKEND> tail //
+) {
+    if (tail.grouped) {
+        undo_scaling_r2k_launch_impl<HER2K, T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, true>(
+            stream, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
+    } else {
+        undo_scaling_r2k_launch_impl<HER2K, T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, false>(
+            stream, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
+    }
 }
 
 template <typename T, typename TAlpha, typename TBeta,
@@ -483,10 +504,11 @@ void undo_scaling_syr2k(
     const size_t ldc_mid, const size_t incC_mid,
     T *const C, const size_t ldc,
     const int16_t *const sftA, const int16_t *const sftB,
-    const TAlpha *alpha, const TBeta *beta //
+    const TAlpha *alpha, const TBeta *beta,
+    const crt_tail<BACKEND> tail //
 ) {
     undo_scaling_r2k_launch<false, T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO>(
-        stream, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+        stream, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
 }
 
 template <typename T, typename TAlpha, typename TBeta,
@@ -498,12 +520,13 @@ void undo_scaling_her2k(
     const size_t ldc_mid, const size_t incC_mid,
     T *const C, const size_t ldc,
     const int16_t *const sftA, const int16_t *const sftB,
-    const TAlpha *alpha, const TBeta *beta //
+    const TAlpha *alpha, const TBeta *beta,
+    const crt_tail<BACKEND> tail //
 ) {
     static_assert(common::isComplex<T>, "undo_scaling_her2k requires complex T.");
 
     undo_scaling_r2k_launch<true, T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO>(
-        stream, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta);
+        stream, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
 }
 
 } // namespace gemmul8::undo_scaling

@@ -4,35 +4,21 @@
 #include "../common/table.hpp"
 #include "helper_triangular.hpp"
 #include "helper_matmult.hpp"
+#include "product_workspace.hpp"
 
 namespace gemmul8::oz2::core {
 
-template <unsigned NUM_MODULI>
+template <unsigned NUM_MODULI, class Layout>
 inline unsigned batch_count(
-    const int arch,
-    const size_t n,
-    const unsigned i,
-    const size_t sizeC_Mid,
-    const size_t sizeC_Hi,
-    const size_t lwork_blas,
-    const size_t worksizeC,
-    const unsigned pointer_products_per_modulus = 0u //
+    const int arch, const size_t n, const unsigned i,
+    const size_t sizeC, const size_t lwork_blas, const size_t worksizeC //
 ) {
-    if (arch == 121) return 1u;
-    if (arch == 90 && n > 2048) return 1u;
-    const size_t available  = worksizeC - i * sizeC_Mid;
-    const unsigned rem_calc = NUM_MODULI - i;
-    for (unsigned cnt = rem_calc; cnt >= 1; --cnt) {
-        const size_t mid_bytes             = cnt * sizeC_Mid;
-        const size_t hi_bytes              = cnt * sizeC_Hi;
-        const unsigned pointer_batch_count = pointer_products_per_modulus * cnt;
-        const size_t ptr_bytes             = size_t(3 * pointer_batch_count) * sizeof(void *);
-        const size_t ptr_gap               = common::padding(ptr_bytes);
-        const size_t gap                   = std::max<size_t>(ptr_gap + lwork_blas, mid_bytes);
-        const size_t req                   = gap + hi_bytes;
-        if (req <= available) return cnt;
+    if (arch == 121 || (arch == 90 && n > 2048)) return 1U;
+    for (unsigned cnt = NUM_MODULI - i; cnt > 1U; --cnt) {
+        if (Layout::required(NUM_MODULI, i, cnt, sizeC, lwork_blas) <= worksizeC)
+            return cnt;
     }
-    return 1u;
+    return 1U;
 }
 
 inline constexpr size_t K_BLOCK_INT8 = size_t(1 << 17);
@@ -43,7 +29,7 @@ inline void configure_matprod_k_blocking(
     const unsigned idx,
     const size_t k //
 ) {
-    handle.modulus_idx     = idx;
+    handle.modulus_idx     = BACKEND == Backend::FP8 ? common::fp8_plan::index(handle.fp8_num_moduli, idx, COMPLEX) : idx;
     handle.modulus_complex = COMPLEX;
     if constexpr (BACKEND == Backend::INT8) {
         constexpr int KB             = int(K_BLOCK_INT8);
@@ -52,8 +38,9 @@ inline void configure_matprod_k_blocking(
         handle.matprod_k_block_first = KB;
         handle.matprod_k_block_next  = KB;
     } else {
-        const int KB0                = int((COMPLEX ? common::table::k_block_first_fp8_complex[idx] : common::table::k_block_first_fp8[idx]));
-        const int KB                 = int((COMPLEX ? common::table::k_block_next_fp8_complex[idx] : common::table::k_block_next_fp8[idx]));
+        const int32_t p              = common::fp8_plan::modulus(handle.fp8_num_moduli, idx, COMPLEX);
+        const int KB0                = int(common::fp8_plan::k_block(p, true));
+        const int KB                 = int(common::fp8_plan::k_block(p, false));
         handle.matprod_k_blocking    = k > size_t(KB0);
         handle.matprod_k_block_first = KB0;
         handle.matprod_k_block_next  = KB;
@@ -61,42 +48,26 @@ inline void configure_matprod_k_blocking(
 }
 
 template <Backend BACKEND, bool COMPLEX = false>
-inline bool needs_k_blocking(const unsigned idx, const size_t k) {
+inline bool needs_k_blocking(const unsigned idx, const size_t k, const unsigned num_moduli) {
     if constexpr (BACKEND == Backend::INT8) {
         if (!COMPLEX && common::table::moduli_int8[idx] == 256) { return false; }
         return k > K_BLOCK_INT8;
     } else {
-        return k > (COMPLEX ? common::table::k_block_first_fp8_complex[idx] : common::table::k_block_first_fp8[idx]);
+        return k > common::fp8_plan::k_block(common::fp8_plan::modulus(num_moduli, idx, COMPLEX), true);
     }
 }
 
 template <Backend BACKEND, bool COMPLEX = false>
-inline unsigned limit_batch_for_k(const unsigned i, const unsigned bcnt, const size_t k) {
+inline unsigned limit_batch_for_k(const unsigned i, const unsigned bcnt, const size_t k, const unsigned num_moduli) {
     unsigned safe = 0;
 
     while (safe < bcnt) {
         const unsigned idx = i + safe;
-        if (needs_k_blocking<BACKEND, COMPLEX>(idx, k)) { break; }
+        if (needs_k_blocking<BACKEND, COMPLEX>(idx, k, num_moduli)) { break; }
         ++safe;
     }
 
     return (safe == 0) ? 1 : safe;
-}
-
-template <bool COMPLEX = false>
-inline unsigned fp8_planes_consumed(const unsigned i0, const unsigned bcnt) {
-    const auto &planes = COMPLEX ? common::table::num_mat_fp8_complex : common::table::num_mat_fp8;
-    return planes[i0 + bcnt] - planes[i0];
-}
-
-template <bool COMPLEX = false>
-inline size_t fp8_plane_offset_from_group_start(
-    const unsigned i0,
-    const unsigned b,
-    const size_t sizeX //
-) {
-    const auto &planes = COMPLEX ? common::table::num_mat_fp8_complex : common::table::num_mat_fp8;
-    return size_t(planes[i0 + b] - planes[i0]) * sizeX;
 }
 
 inline void upload_pointer_arrays(
@@ -433,88 +404,33 @@ inline void error_free_matmult_f8_real(
     common::matptr_t<common::low_t<Backend::FP8>, false> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, false> &C_hi //
 ) {
-    using LowT = common::low_t<Backend::FP8>;
-    using HiT  = common::hi_t<Backend::FP8>;
-
-    constexpr HiT one                = 1.0f;
-    constexpr HiT zero               = 0.0f;
-    constexpr unsigned max_ptr_batch = 3u * 20u;
-
-    std::array<void *, max_ptr_batch> hA{};
-    std::array<void *, max_ptr_batch> hB{};
-    std::array<void *, max_ptr_batch> hC{};
-
-    unsigned pcnt = 0;
-
+    using LowT          = common::low_t<Backend::FP8>;
+    constexpr float one = 1.0f, zero = 0.0f;
+    constexpr unsigned parts = 1U;
+    std::array<void *, 60U * parts> hA{}, hB{}, hC{};
+    unsigned pcnt  = 0;
+    size_t offsetA = 0, offsetB = 0;
     for (unsigned b = 0; b < bcnt; ++b) {
-        const unsigned mod_idx = idx + b;
-
-        const size_t offA = fp8_plane_offset_from_group_start(idx, b, sizeA);
-        const size_t offB = fp8_plane_offset_from_group_start(idx, b, sizeB);
-
-        LowT *A0 = A_lo.ptr0 + offA;
-        LowT *B0 = B_lo.ptr0 + offB;
-        HiT *C0  = C_hi.ptr0 + b * 3 * sizeC;
-
-        if (!common::table::isKaratsuba[mod_idx]) {
-            LowT *Ahi = A0;
-            LowT *Alo = A0 + sizeA;
-            LowT *Bhi = B0;
-            LowT *Blo = B0 + sizeB;
-
-            hA[pcnt] = Ahi;
-            hB[pcnt] = Blo;
-            hC[pcnt] = C0 + 0 * sizeC;
-            ++pcnt;
-
-            hA[pcnt] = Alo;
-            hB[pcnt] = Bhi;
-            hC[pcnt] = C0 + 1 * sizeC;
-            ++pcnt;
-
-            hA[pcnt] = Alo;
-            hB[pcnt] = Blo;
-            hC[pcnt] = C0 + 2 * sizeC;
-            ++pcnt;
-        } else {
-            LowT *Ahi = A0;
-            LowT *Alo = A0 + sizeA;
-            LowT *As  = A0 + 2 * sizeA;
-            LowT *Bhi = B0;
-            LowT *Blo = B0 + sizeB;
-            LowT *Bs  = B0 + 2 * sizeB;
-
-            hA[pcnt] = Ahi;
-            hB[pcnt] = Bhi;
-            hC[pcnt] = C0 + 0 * sizeC;
-            ++pcnt;
-
-            hA[pcnt] = Alo;
-            hB[pcnt] = Blo;
-            hC[pcnt] = C0 + 1 * sizeC;
-            ++pcnt;
-
-            hA[pcnt] = As;
-            hB[pcnt] = Bs;
-            hC[pcnt] = C0 + 2 * sizeC;
-            ++pcnt;
+        const auto scheme = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, idx + b, false));
+        for (unsigned part = 0; part < parts; ++part) {
+            LowT *a    = A_lo.ptr0 + offsetA;
+            LowT *bptr = B_lo.ptr0 + offsetB;
+            for (unsigned j = 0; j < scheme.products; ++j) {
+                hA[pcnt] = a + j * sizeA;
+                hB[pcnt] = bptr + j * sizeB;
+                hC[pcnt] = C_hi.ptr0 + size_t(pcnt) * sizeC;
+                ++pcnt;
+            }
         }
+        offsetA += scheme.products * sizeA;
+        offsetB += scheme.products * sizeB;
     }
-
     upload_pointer_arrays(stream, handle, hA.data(), hB.data(), hC.data(), pcnt);
-
     common::call_gemm_tn_pointer_batched<Backend::FP8>(
-        stream, handle, ldc_hi, n, lda_lo, pcnt,
-        &one,
-        handle.Aarray, lda_lo,
-        handle.Barray, ldb_lo,
-        &zero,
-        handle.Carray, ldc_hi);
-
-    const unsigned consumed = fp8_planes_consumed(idx, bcnt);
-
-    A_lo.shift(consumed * sizeA);
-    B_lo.shift(consumed * sizeB);
+        stream, handle, ldc_hi, n, lda_lo, pcnt, &one,
+        handle.Aarray, lda_lo, handle.Barray, ldb_lo, &zero, handle.Carray, ldc_hi);
+    A_lo.shift(offsetA);
+    B_lo.shift(offsetB);
 }
 
 template <common::MatMulKind KIND,
@@ -537,65 +453,27 @@ inline void error_free_matmult_f8_real_strided(
     common::matptr_t<common::low_t<Backend::FP8>, false> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, false> &C_hi //
 ) {
-    using LowT = common::low_t<Backend::FP8>;
-    using HiT  = common::hi_t<Backend::FP8>;
+    using LowT          = common::low_t<Backend::FP8>;
+    constexpr float one = 1.0f, zero = 0.0f;
+    constexpr unsigned parts = 1U;
+    const unsigned products  = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, idx, false)).products;
+    const int64_t strideA    = products * int64_t(sizeA);
+    const int64_t strideB    = products * int64_t(sizeB);
+    const int64_t strideC    = products * parts * int64_t(sizeC);
+    for (unsigned part = 0; part < parts; ++part) {
+        LowT *a = A_lo.ptr0;
+        LowT *b = B_lo.ptr0;
 
-    constexpr HiT one  = 1.0f;
-    constexpr HiT zero = 0.0f;
-
-    if (!common::table::isKaratsuba[idx]) {
-        const int64_t strideA = 2 * int64_t(sizeA);
-        const int64_t strideB = 2 * int64_t(sizeB);
-        const int64_t strideC = 3 * int64_t(sizeC);
-
-        LowT *Ahi = A_lo.ptr0;
-        LowT *Alo = A_lo.ptr0 + sizeA;
-        LowT *Bhi = B_lo.ptr0;
-        LowT *Blo = B_lo.ptr0 + sizeB;
-
-        matmul_block_3_strided_batched<KIND, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
-            stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt,
-            &one, &one, &one,
-            Ahi, Alo, Alo, strideA,
-            Blo, Bhi, Blo, strideB,
-            &zero, &zero, &zero,
-            C_hi.ptr0 + 0 * sizeC,
-            C_hi.ptr0 + 1 * sizeC,
-            C_hi.ptr0 + 2 * sizeC,
-            strideC);
-
-        A_lo.shift(bcnt * 2 * sizeA);
-        if constexpr (KIND != common::MatMulKind::ATxA && KIND != common::MatMulKind::AHxA) {
-            B_lo.shift(bcnt * 2 * sizeB);
+        for (unsigned j = 0; j < products; ++j) {
+            matmul_block_1_strided_batched<KIND, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
+                stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt, &one,
+                a + j * sizeA, strideA, b + j * sizeB, strideB, &zero,
+                C_hi.ptr0 + (products * part + j) * sizeC, strideC);
         }
-
-    } else {
-        const int64_t strideA = 3 * int64_t(sizeA);
-        const int64_t strideB = 3 * int64_t(sizeB);
-        const int64_t strideC = 3 * int64_t(sizeC);
-
-        LowT *Ahi = A_lo.ptr0;
-        LowT *Alo = A_lo.ptr0 + sizeA;
-        LowT *As  = A_lo.ptr0 + 2 * sizeA;
-        LowT *Bhi = B_lo.ptr0;
-        LowT *Blo = B_lo.ptr0 + sizeB;
-        LowT *Bs  = B_lo.ptr0 + 2 * sizeB;
-
-        matmul_block_3_strided_batched<KIND, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
-            stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt,
-            &one, &one, &one,
-            Ahi, Alo, As, strideA,
-            Bhi, Blo, Bs, strideB,
-            &zero, &zero, &zero,
-            C_hi.ptr0 + 0 * sizeC,
-            C_hi.ptr0 + 1 * sizeC,
-            C_hi.ptr0 + 2 * sizeC,
-            strideC);
-
-        A_lo.shift(bcnt * 3 * sizeA);
-        if constexpr (KIND != common::MatMulKind::ATxA && KIND != common::MatMulKind::AHxA) {
-            B_lo.shift(bcnt * 3 * sizeB);
-        }
+    }
+    A_lo.shift(bcnt * products * sizeA);
+    if constexpr (KIND != common::MatMulKind::ATxA && KIND != common::MatMulKind::AHxA) {
+        B_lo.shift(bcnt * products * sizeB);
     }
 }
 
@@ -615,96 +493,33 @@ inline void error_free_matmult_f8_complex(
     common::matptr_t<common::low_t<Backend::FP8>, true> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, true> &C_hi //
 ) {
-    using LowT = common::low_t<Backend::FP8>;
-    using HiT  = common::hi_t<Backend::FP8>;
-
-    constexpr HiT one                = 1.0f;
-    constexpr HiT zero               = 0.0f;
-    constexpr unsigned max_ptr_batch = 6u * 20u;
-
-    std::array<void *, max_ptr_batch> hA{};
-    std::array<void *, max_ptr_batch> hB{};
-    std::array<void *, max_ptr_batch> hC{};
-
-    LowT *Aptr[2] = {A_lo.ptr0, A_lo.ptr1};
-    LowT *Bptr[2] = {B_lo.ptr0, B_lo.ptr1};
-
-    unsigned pcnt = 0;
-
+    using LowT          = common::low_t<Backend::FP8>;
+    constexpr float one = 1.0f, zero = 0.0f;
+    constexpr unsigned parts = 2U;
+    std::array<void *, 60U * parts> hA{}, hB{}, hC{};
+    unsigned pcnt  = 0;
+    size_t offsetA = 0, offsetB = 0;
     for (unsigned b = 0; b < bcnt; ++b) {
-        const unsigned mod_idx = idx + b;
-
-        const size_t offA = fp8_plane_offset_from_group_start<true>(idx, b, sizeA);
-        const size_t offB = fp8_plane_offset_from_group_start<true>(idx, b, sizeB);
-
-        HiT *Cbase = C_hi.ptr0 + b * 6 * sizeC;
-
-#pragma unroll
-        for (unsigned p = 0; p < 2; ++p) {
-            LowT *A0 = Aptr[p] + offA;
-            LowT *B0 = Bptr[p] + offB;
-            HiT *C0  = Cbase + 3 * p * sizeC;
-
-            if (!common::table::isKaratsuba_complex[mod_idx]) {
-                LowT *Ahi = A0;
-                LowT *Alo = A0 + sizeA;
-                LowT *Bhi = B0;
-                LowT *Blo = B0 + sizeB;
-
-                hA[pcnt] = Ahi;
-                hB[pcnt] = Blo;
-                hC[pcnt] = C0 + 0 * sizeC;
-                ++pcnt;
-
-                hA[pcnt] = Alo;
-                hB[pcnt] = Bhi;
-                hC[pcnt] = C0 + 1 * sizeC;
-                ++pcnt;
-
-                hA[pcnt] = Alo;
-                hB[pcnt] = Blo;
-                hC[pcnt] = C0 + 2 * sizeC;
-                ++pcnt;
-            } else {
-                LowT *Ahi = A0;
-                LowT *Alo = A0 + sizeA;
-                LowT *As  = A0 + 2 * sizeA;
-                LowT *Bhi = B0;
-                LowT *Blo = B0 + sizeB;
-                LowT *Bs  = B0 + 2 * sizeB;
-
-                hA[pcnt] = Ahi;
-                hB[pcnt] = Bhi;
-                hC[pcnt] = C0 + 0 * sizeC;
-                ++pcnt;
-
-                hA[pcnt] = Alo;
-                hB[pcnt] = Blo;
-                hC[pcnt] = C0 + 1 * sizeC;
-                ++pcnt;
-
-                hA[pcnt] = As;
-                hB[pcnt] = Bs;
-                hC[pcnt] = C0 + 2 * sizeC;
+        const auto scheme = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, idx + b, true));
+        for (unsigned part = 0; part < parts; ++part) {
+            LowT *a    = (part == 0 ? A_lo.ptr0 : A_lo.ptr1) + offsetA;
+            LowT *bptr = (part == 0 ? B_lo.ptr0 : B_lo.ptr1) + offsetB;
+            for (unsigned j = 0; j < scheme.products; ++j) {
+                hA[pcnt] = a + j * sizeA;
+                hB[pcnt] = bptr + j * sizeB;
+                hC[pcnt] = C_hi.ptr0 + size_t(pcnt) * sizeC;
                 ++pcnt;
             }
         }
+        offsetA += scheme.products * sizeA;
+        offsetB += scheme.products * sizeB;
     }
-
     upload_pointer_arrays(stream, handle, hA.data(), hB.data(), hC.data(), pcnt);
-
     common::call_gemm_tn_pointer_batched<Backend::FP8>(
-        stream, handle, ldc_hi, n, lda_lo, pcnt,
-        &one,
-        handle.Aarray, lda_lo,
-        handle.Barray, ldb_lo,
-        &zero,
-        handle.Carray, ldc_hi);
-
-    const unsigned consumed = fp8_planes_consumed<true>(idx, bcnt);
-
-    A_lo.shift(consumed * sizeA);
-    B_lo.shift(consumed * sizeB);
+        stream, handle, ldc_hi, n, lda_lo, pcnt, &one,
+        handle.Aarray, lda_lo, handle.Barray, ldb_lo, &zero, handle.Carray, ldc_hi);
+    A_lo.shift(offsetA);
+    B_lo.shift(offsetB);
 }
 
 template <common::MatMulKind KIND,
@@ -727,85 +542,27 @@ inline void error_free_matmult_f8_complex_strided(
     common::matptr_t<common::low_t<Backend::FP8>, true> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, true> &C_hi //
 ) {
-    using LowT = common::low_t<Backend::FP8>;
-    using HiT  = common::hi_t<Backend::FP8>;
-
-    constexpr HiT one  = 1.0f;
-    constexpr HiT zero = 0.0f;
-
-    constexpr auto MK           = KIND;
-    constexpr unsigned products = KIND == common::MatMulKind::AHxA ? 1u : 2u;
-
-    LowT *Aptr[2] = {A_lo.ptr0, A_lo.ptr1};
-    if constexpr (KIND == common::MatMulKind::AHxA) {
-        Aptr[0] = A_lo.ptr1;
-        Aptr[1] = A_lo.ptr0;
+    using LowT          = common::low_t<Backend::FP8>;
+    constexpr float one = 1.0f, zero = 0.0f;
+    constexpr unsigned parts = KIND == common::MatMulKind::AHxA ? 1U : 2U;
+    const unsigned products  = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, idx, true)).products;
+    const int64_t strideA    = products * int64_t(sizeA);
+    const int64_t strideB    = products * int64_t(sizeB);
+    const int64_t strideC    = products * parts * int64_t(sizeC);
+    for (unsigned part = 0; part < parts; ++part) {
+        LowT *a = part == 0 ? A_lo.ptr0 : A_lo.ptr1;
+        LowT *b = part == 0 ? B_lo.ptr0 : B_lo.ptr1;
+        if constexpr (KIND == common::MatMulKind::AHxA) a = A_lo.ptr1;
+        for (unsigned j = 0; j < products; ++j) {
+            matmul_block_1_strided_batched<KIND, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
+                stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt, &one,
+                a + j * sizeA, strideA, b + j * sizeB, strideB, &zero,
+                C_hi.ptr0 + (products * part + j) * sizeC, strideC);
+        }
     }
-    LowT *Bptr[2] = {B_lo.ptr0, B_lo.ptr1};
-
-    const int64_t strideC = 3 * products * int64_t(sizeC);
-
-    if (!common::table::isKaratsuba_complex[idx]) {
-        const int64_t strideA = 2 * int64_t(sizeA);
-        const int64_t strideB = 2 * int64_t(sizeB);
-
-#pragma unroll
-        for (unsigned p = 0; p < products; ++p) {
-            LowT *Ahi = Aptr[p];
-            LowT *Alo = Aptr[p] + sizeA;
-            LowT *Bhi = Bptr[p];
-            LowT *Blo = Bptr[p] + sizeB;
-
-            HiT *C0 = C_hi.ptr0 + 3 * p * sizeC;
-
-            matmul_block_3_strided_batched<MK, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
-                stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt,
-                &one, &one, &one,
-                Ahi, Alo, Alo, strideA,
-                Blo, Bhi, Blo, strideB,
-                &zero, &zero, &zero,
-                C0 + 0 * sizeC,
-                C0 + 1 * sizeC,
-                C0 + 2 * sizeC,
-                strideC);
-        }
-
-        A_lo.shift(bcnt * 2 * sizeA);
-        if constexpr (KIND != common::MatMulKind::ATxA && KIND != common::MatMulKind::AHxA) {
-            B_lo.shift(bcnt * 2 * sizeB);
-        }
-
-    } else {
-        const int64_t strideA = 3 * int64_t(sizeA);
-        const int64_t strideB = 3 * int64_t(sizeB);
-
-#pragma unroll
-        for (unsigned p = 0; p < products; ++p) {
-            LowT *Ahi = Aptr[p];
-            LowT *Alo = Aptr[p] + sizeA;
-            LowT *As  = Aptr[p] + 2 * sizeA;
-            LowT *Bhi = Bptr[p];
-            LowT *Blo = Bptr[p] + sizeB;
-            LowT *Bs  = Bptr[p] + 2 * sizeB;
-
-            HiT *C0 = C_hi.ptr0 + 3 * p * sizeC;
-
-            matmul_block_3_strided_batched<MK, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
-                stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt,
-                &one, &one, &one,
-                Ahi, Alo, As, strideA,
-                Bhi, Blo, Bs, strideB,
-                &zero, &zero, &zero,
-                C0 + 0 * sizeC,
-                C0 + 1 * sizeC,
-                C0 + 2 * sizeC,
-                strideC);
-        }
-
-        A_lo.shift(bcnt * 3 * sizeA);
-        if constexpr (KIND != common::MatMulKind::ATxA && KIND != common::MatMulKind::AHxA) {
-            B_lo.shift(bcnt * 3 * sizeB);
-        }
+    A_lo.shift(bcnt * products * sizeA);
+    if constexpr (KIND != common::MatMulKind::ATxA && KIND != common::MatMulKind::AHxA) {
+        B_lo.shift(bcnt * products * sizeB);
     }
 }
 
@@ -829,19 +586,20 @@ inline void error_free_matmult_f8_real_strided_split(
     common::matptr_t<common::low_t<Backend::FP8>, false> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, false> &C_hi //
 ) {
-    unsigned done = 0;
+    unsigned done  = 0;
+    size_t offsetC = 0;
 
     while (done < bcnt) {
-        const unsigned cur   = idx + done;
-        const bool karatsuba = common::table::isKaratsuba[cur];
+        const unsigned cur      = idx + done;
+        const unsigned products = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur, false)).products;
 
         unsigned cnt = 1;
-        while (done + cnt < bcnt && common::table::isKaratsuba[cur + cnt] == karatsuba) {
+        while (done + cnt < bcnt && common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur + cnt, false)).products == products) {
             ++cnt;
         }
 
         auto C_part = C_hi;
-        C_part.shift(size_t(done) * 3 * sizeC);
+        C_part.ptr0 += offsetC;
 
         error_free_matmult_f8_real_strided<KIND, UPLO_A, UPLO_B, UPLO_C>(
             stream, handle,
@@ -850,6 +608,7 @@ inline void error_free_matmult_f8_real_strided_split(
             sizeA, sizeB, sizeC,
             A_lo, B_lo, C_part);
 
+        offsetC += size_t(cnt) * products * sizeC;
         done += cnt;
     }
 }
@@ -874,23 +633,22 @@ inline void error_free_matmult_f8_complex_strided_split(
     common::matptr_t<common::low_t<Backend::FP8>, true> &B_lo,
     common::matptr_t<common::hi_t<Backend::FP8>, true> &C_hi //
 ) {
-    unsigned done = 0;
+    unsigned done  = 0;
+    size_t offsetC = 0;
 
     while (done < bcnt) {
-        const unsigned cur   = idx + done;
-        const bool karatsuba = common::table::isKaratsuba_complex[cur];
+        const unsigned cur      = idx + done;
+        const unsigned products = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur, true)).products;
 
         unsigned cnt = 1;
-        while (done + cnt < bcnt && common::table::isKaratsuba_complex[cur + cnt] == karatsuba) {
+        while (done + cnt < bcnt && common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur + cnt, true)).products == products) {
             ++cnt;
         }
 
-        auto C_part = C_hi;
-        if constexpr (KIND == common::MatMulKind::AHxA) {
-            C_part.ptr0 += size_t(done) * 3 * sizeC;
-        } else {
-            C_part.shift(size_t(done) * 6 * sizeC);
-        }
+        auto C_part              = C_hi;
+        constexpr unsigned parts = KIND == common::MatMulKind::AHxA ? 1U : 2U;
+        C_part.ptr0 += offsetC;
+        C_part.ptr1 = parts == 1U ? nullptr : C_part.ptr0 + products * sizeC;
 
         error_free_matmult_f8_complex_strided<KIND, UPLO_A, UPLO_B, UPLO_C>(
             stream, handle,
@@ -899,6 +657,7 @@ inline void error_free_matmult_f8_complex_strided_split(
             sizeA, sizeB, sizeC,
             A_lo, B_lo, C_part);
 
+        offsetC += size_t(cnt) * parts * products * sizeC;
         done += cnt;
     }
 }

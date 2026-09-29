@@ -43,7 +43,7 @@ static_assert(UPLO == CUBLAS_FILL_MODE_UPPER || UPLO == CUBLAS_FILL_MODE_LOWER,
         const size_t, const size_t,                                   \
         T *const, const size_t,                                       \
         const int16_t *const, const int16_t *const,                   \
-        const TALPHA *const, const TBETA *const);
+        const TALPHA *const, const TBETA *const, const crt_tail<BE>);
 
 INSTANTIATE_THIS(2U)
 INSTANTIATE_THIS(3U)

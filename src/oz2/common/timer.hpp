@@ -1,7 +1,13 @@
 #pragma once
 #include "include.hpp"
 
+#if !defined(GEMMul8_PROFILE)
+    #define GEMMul8_PROFILE 0
+#endif
+
 namespace gemmul8::common {
+
+#if GEMMul8_PROFILE
 
 template <unsigned NUM_MODULI>
 struct Timer {
@@ -12,7 +18,7 @@ struct Timer {
     unsigned num_groups = 0;
 
     Timer() {
-#pragma unroll
+    #pragma unroll
         for (unsigned i = 0; i < num_events; ++i) {
             cudaEventCreate(&events[i]);
         }
@@ -22,7 +28,7 @@ struct Timer {
     Timer &operator=(const Timer &) = delete;
 
     ~Timer() {
-#pragma unroll
+    #pragma unroll
         for (unsigned i = 0; i < num_events; ++i) {
             if (events[i]) cudaEventDestroy(events[i]);
         }
@@ -88,5 +94,39 @@ struct Timer {
         timer[3] = elapsed_s(events[undo_scaling_begin()], events[undo_scaling_end()]);
     }
 };
+
+#else
+
+template <unsigned NUM_MODULI>
+struct Timer {
+    static constexpr unsigned max_groups = NUM_MODULI;
+    static constexpr unsigned num_events = 2 * max_groups + 3;
+
+    Timer()                         = default;
+    Timer(const Timer &)            = delete;
+    Timer &operator=(const Timer &) = delete;
+    ~Timer()                        = default;
+
+    static constexpr unsigned scaling_begin() { return 0; }
+    static constexpr unsigned scaling_end() { return 0; }
+    static constexpr unsigned mm_end(unsigned) { return 0; }
+    static constexpr unsigned mod_hi2mid_end(unsigned) { return 0; }
+    static constexpr unsigned undo_scaling_end() { return 0; }
+
+    unsigned begin_group() { return 0; }
+    unsigned mm_begin(unsigned) const { return 0; }
+    static constexpr unsigned mod_begin(unsigned) { return 0; }
+    unsigned undo_scaling_begin() const { return 0; }
+
+    void record(unsigned, cudaStream_t) {}
+    static double elapsed_s(cudaEvent_t, cudaEvent_t) { return 0.0; }
+
+    void collect(std::vector<double> &timer) {
+        static_assert(NUM_MODULI > 0, "NUM_MODULI must be positive.");
+        timer[0] = timer[1] = timer[2] = timer[3] = 0.0;
+    }
+};
+
+#endif
 
 } // namespace gemmul8::common

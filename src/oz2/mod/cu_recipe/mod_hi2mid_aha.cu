@@ -24,13 +24,15 @@ template void mod_hi2mid_AHA<BE, UPLO, true>(
     const unsigned,
     const size_t, const unsigned,
     common::matptr_t<common::hi_t<BE>, true> &,
-    common::mid_t<BE, true> *);
+    common::mid_t<BE, true> *,
+    const unsigned);
 
 template void mod_hi2mid_AHA<BE, UPLO, false>(
     const cudaStream_t,
     const unsigned,
     const size_t, const unsigned,
     common::matptr_t<common::hi_t<BE>, true> &,
-    common::mid_t<BE, true> *);
+    common::mid_t<BE, true> *,
+    const unsigned);
 
 } // namespace gemmul8::mod

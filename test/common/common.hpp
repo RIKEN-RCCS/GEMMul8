@@ -103,7 +103,7 @@ template <> struct testTraits<float> {
     static constexpr unsigned NUM_MODULI_MIN          = 4;
     static constexpr unsigned NUM_MODULI_MAX          = 9;
     static constexpr unsigned NUM_MODULI_MIN_accuracy = 3;
-    static constexpr unsigned NUM_MODULI_MAX_accuracy = 12;
+    static constexpr unsigned NUM_MODULI_MAX_accuracy = 16;
     static constexpr char prefix                      = 's';
     static constexpr char prefix_upper                = 'S';
     static constexpr bool is_complex                  = false;
@@ -153,7 +153,7 @@ template <> struct testTraits<cuFloatComplex> {
     static constexpr unsigned NUM_MODULI_MIN          = 4;
     static constexpr unsigned NUM_MODULI_MAX          = 9;
     static constexpr unsigned NUM_MODULI_MIN_accuracy = 3;
-    static constexpr unsigned NUM_MODULI_MAX_accuracy = 12;
+    static constexpr unsigned NUM_MODULI_MAX_accuracy = 16;
     static constexpr char prefix                      = 'c';
     static constexpr char prefix_upper                = 'C';
     static constexpr bool is_complex                  = true;

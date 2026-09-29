@@ -1,5 +1,6 @@
 #pragma once
 #include "mod_core.hpp"
+#include "../common/fp8_reconstruct_math.hpp"
 
 namespace gemmul8::mod {
 
@@ -53,22 +54,37 @@ using fp8_reconstruction =
 
 template <unsigned IDX, bool nowrap = false, bool COMPLEX = false>
 __device__ __forceinline__ int32_t mod_f32x3_2_i32(const float C0, const float C1, const float C2) {
-    using R          = fp8_reconstruction<IDX, COMPLEX>;
-    int32_t c0       = __float2int_rn(C0);
-    const int32_t c1 = __float2int_rn(C1);
-    const int32_t c2 = __float2int_rn(C2);
-
-    if constexpr (R::reduce_c0) {
-        c0 = mod_small_nowrap<Backend::FP8, IDX, COMPLEX>(c0);
-    }
-
-    const int32_t t = R::square ? R::base * (c0 + c1) + c2
-                                : R::w0 * c0 + R::w1 * c1 + R::w2 * c2;
-    if constexpr (nowrap) {
-        return mod_small_nowrap<Backend::FP8, IDX, COMPLEX>(t);
+    if constexpr (IDX >= 20U) {
+        return common::fp8_plan::reconstruct<int32_t(IDX - 20U), !nowrap>(C0, C1, C2);
     } else {
-        return mod_small<Backend::FP8, IDX, COMPLEX>(t);
+        using R          = fp8_reconstruction<IDX, COMPLEX>;
+        int32_t c0       = __float2int_rn(C0);
+        const int32_t c1 = __float2int_rn(C1);
+        const int32_t c2 = __float2int_rn(C2);
+
+        if constexpr (R::reduce_c0) {
+            c0 = mod_small_nowrap<Backend::FP8, IDX, COMPLEX>(c0);
+        }
+
+        const int32_t t = R::square ? R::base * (c0 + c1) + c2
+                                    : R::w0 * c0 + R::w1 * c1 + R::w2 * c2;
+        if constexpr (nowrap) {
+            return mod_small_nowrap<Backend::FP8, IDX, COMPLEX>(t);
+        } else {
+            return mod_small<Backend::FP8, IDX, COMPLEX>(t);
+        }
     }
+}
+
+template <unsigned IDX, bool COMPLEX = false>
+inline constexpr unsigned fp8_product_count = IDX < 20U ? 3U : common::fp8_plan::scheme<int32_t(IDX - 20U)>.products;
+
+template <unsigned IDX, bool COMPLEX = false, bool nowrap = false>
+__device__ __forceinline__ int32_t load_fp8_product(const float *ptr, size_t index, size_t plane_size) {
+    float c1 = 0.0f, c2 = 0.0f;
+    if constexpr (fp8_product_count<IDX, COMPLEX> > 1U) c1 = ptr[index + plane_size];
+    if constexpr (fp8_product_count<IDX, COMPLEX> > 2U) c2 = ptr[index + 2 * plane_size];
+    return mod_f32x3_2_i32<IDX, nowrap, COMPLEX>(ptr[index], c1, c2);
 }
 
 } // namespace gemmul8::mod

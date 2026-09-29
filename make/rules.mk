@@ -12,6 +12,7 @@ endif
 info:
 	@{ \
 	    echo ""; \
+		echo "PROFILE      : $(PROFILE)"; \
 	    echo "BACKEND      : $(BACKEND)"; \
 	    echo "OPS          : $(BUILD_OPS)"; \
 	    echo "OZ2_BACKENDS : $(BUILD_OZ2_BACKENDS)"; \

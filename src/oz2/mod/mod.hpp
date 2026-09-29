@@ -70,32 +70,36 @@ __device__ __forceinline__ common::fp64_mant_exp2 scaled_mant_exp(cuDoubleComple
         out1 += inc;                                    \
     }
 
-#define GEMMUL8_FP8_RUN_SCALAR_STEP(I)            \
-    if constexpr (NUM_MODULI > (I)) {             \
-        mod_launch<(I), V>(out, inc, v);          \
-        out += common::table::num_limbs<I> * inc; \
+#define GEMMUL8_FP8_RUN_SCALAR_STEP(I)                                                                   \
+    if constexpr (NUM_MODULI > (I)) {                                                                    \
+        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, false>; \
+        mod_launch<modulus_id, V>(out, inc, v);                                                          \
+        out += common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;                       \
     }
 
-#define GEMMUL8_FP8_RUN_VEC4_STEP(I)                  \
-    if constexpr (NUM_MODULI > (I)) {                 \
-        mod_launch<(I), V>(out, inc, v0, v1, v2, v3); \
-        out += common::table::num_limbs<I> * inc;     \
+#define GEMMUL8_FP8_RUN_VEC4_STEP(I)                                                                     \
+    if constexpr (NUM_MODULI > (I)) {                                                                    \
+        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, false>; \
+        mod_launch<modulus_id, V>(out, inc, v0, v1, v2, v3);                                             \
+        out += common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;                       \
     }
 
-#define GEMMUL8_FP8_RUN_CPLX_SCALAR_STEP(I)                          \
-    if constexpr (NUM_MODULI > (I)) {                                \
-        mod_launch<(I), V>(out0, out1, inc, v);                      \
-        const size_t step = common::table::num_limbs<I, true> * inc; \
-        out0 += step;                                                \
-        out1 += step;                                                \
+#define GEMMUL8_FP8_RUN_CPLX_SCALAR_STEP(I)                                                             \
+    if constexpr (NUM_MODULI > (I)) {                                                                   \
+        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true>; \
+        mod_launch<modulus_id, V>(out0, out1, inc, v);                                                  \
+        const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;         \
+        out0 += step;                                                                                   \
+        out1 += step;                                                                                   \
     }
 
-#define GEMMUL8_FP8_RUN_CPLX_VEC4_STEP(I)                            \
-    if constexpr (NUM_MODULI > (I)) {                                \
-        mod_launch<(I), V>(out0, out1, inc, v0, v1, v2, v3);         \
-        const size_t step = common::table::num_limbs<I, true> * inc; \
-        out0 += step;                                                \
-        out1 += step;                                                \
+#define GEMMUL8_FP8_RUN_CPLX_VEC4_STEP(I)                                                               \
+    if constexpr (NUM_MODULI > (I)) {                                                                   \
+        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true>; \
+        mod_launch<modulus_id, V>(out0, out1, inc, v0, v1, v2, v3);                                     \
+        const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;         \
+        out0 += step;                                                                                   \
+        out1 += step;                                                                                   \
     }
 
 // interface for general NUM_MODULI
