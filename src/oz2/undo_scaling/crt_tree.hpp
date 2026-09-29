@@ -159,12 +159,10 @@ __device__ __forceinline__ uintx<N> montgomery(
     const uint32_t neg_inv //
 ) {
     if constexpr (N == 1) {
-        const uint64_t t  = uint64_t(a.word[0]) * k.word[0];
-        const uint32_t m  = uint32_t(t) * neg_inv;
-        const uint64_t mp = uint64_t(m) * p.word[0];
-        using U           = std::conditional_t<HALF_RADIX, uint32_t, uint64_t>;
-        const U u         = U(t >> 32) + U(mp >> 32) + uint32_t(uint32_t(t) != 0);
-        return uintx<1>{{uint32_t(u >= p.word[0] ? u - p.word[0] : u)}};
+        const uint32_t m = a.word[0] * (k.word[0] * (0U - neg_inv));
+        const uint32_t h = __umulhi(a.word[0], k.word[0]);
+        const uint32_t l = __umulhi(m, p.word[0]);
+        return uintx<1>{{h - l + (h < l ? p.word[0] : 0U)}};
     } else {
         constexpr unsigned size = 2 * N + (HALF_RADIX ? 0 : 1);
         auto t                  = multiply<size>(a, k);
@@ -355,9 +353,19 @@ template <class Left, class Right> struct merge_constants {
     static constexpr auto p           = resize<words>(Right::modulus);
     static constexpr uint32_t neg_inv = negative_inverse32(p.word[0]);
 
+    static constexpr auto inverse = constant_inverse(constant_value(Left::modulus), constant_value(p));
+
+    static constexpr uint64_t shoup_mu = [] {
+        if constexpr (words <= 2) {
+            return uint64_t((inverse << (32 * words)) / constant_value(p));
+        } else {
+            return uint64_t(0);
+        }
+    }();
+
     static constexpr auto k = [] {
         constexpr auto modulus = constant_value(p);
-        auto out               = constant_inverse(constant_value(Left::modulus), modulus);
+        auto out               = inverse;
         for (unsigned i = 0; i < 32 * words; ++i) {
             out = (out * 2) % modulus;
         }
@@ -393,13 +401,34 @@ template <class Left, class Right> struct merge_constants {
         }
         const uint32_t borrow = sub(difference, resize<words>(a));
 
-        auto t = montgomery<words, (p.word[words - 1] < 0x80000000U)>(
-            difference, coefficient, right_modulus, neg_inv);
+        uintx<words> t{};
+        if constexpr (words <= 2 && p.word[words - 1] < 0x80000000U) {
+            // Shoup: 0 <= x*c - floor(x*mu/R)*p < 2*p < R.
+            using U             = std::conditional_t<words == 1, uint32_t, uint64_t>;
+            using V             = std::conditional_t<(Right::bit_count < 32), uint32_t, U>;
+            constexpr U mu      = U(shoup_mu);
+            constexpr V c       = V(inverse);
+            constexpr V modulus = V(pack(right_modulus));
+            const U x           = U(pack(difference));
+            U q;
+            if constexpr (words == 1) {
+                q = __umulhi(x, mu);
+            } else {
+                q = __umul64hi(x, mu);
+            }
+            const V r = V(x) * c - V(q) * modulus;
+            unpack<words>(r >= modulus ? r - modulus : r, t);
+        } else {
+            t = montgomery<words, (p.word[words - 1] < 0x80000000U)>(
+                difference, coefficient, right_modulus, neg_inv);
+        }
 
         if constexpr (!bounded_difference) {
             uintx<words> correction{};
 #pragma unroll
-            for (unsigned i = 0; i < words; ++i) correction.word[i] = coefficient.word[i] & (0U - borrow);
+            for (unsigned i = 0; i < words; ++i) {
+                correction.word[i] = coefficient.word[i] & (0U - borrow);
+            }
             t = sub_mod(t, correction, right_modulus);
         }
 
