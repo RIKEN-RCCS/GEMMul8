@@ -12,18 +12,18 @@ __device__ __forceinline__ int32_t reduce_int_nowrap(int32_t x) {
     return int32_t(uint32_t(x) - uint32_t(k) * uint32_t(Q));
 }
 
-__device__ __forceinline__ constexpr int64_t coeff_abs(int32_t c) {
+__host__ __device__ constexpr int64_t coeff_abs(int32_t c) {
     return c < 0 ? -int64_t(c) : int64_t(c);
 }
 
-__device__ __forceinline__ constexpr int64_t reconstruction_bound(info s, unsigned mask) {
+__host__ __device__ constexpr int64_t reconstruction_bound(info s, unsigned mask) {
     int64_t bound = 0;
     for (unsigned j = 0; j < s.products; ++j)
         bound += coeff_abs(s.coefficient[j]) * ((mask & (1U << j)) ? (1LL << 24) : 2LL * s.q[j]);
     return bound;
 }
 
-__device__ __forceinline__ constexpr unsigned integer_raw_mask(info s) {
+__host__ __device__ constexpr unsigned integer_raw_mask(info s) {
     unsigned best = 0, count = 0;
     int64_t best_bound = INT64_MAX;
     for (unsigned mask = 0; mask < (1U << s.products); ++mask) {
@@ -47,7 +47,7 @@ __device__ __forceinline__ int32_t reconstruction_input(float f) {
     else return reduce_int_nowrap<s.q[J]>(x);
 }
 
-__device__ __forceinline__ constexpr int32_t small_inverse(int32_t x, int32_t q) {
+__host__ __device__ constexpr int32_t small_inverse(int32_t x, int32_t q) {
     for (int32_t y = 1; y < q; ++y) {
         if ((x * y) % q == 1) return y > q / 2 ? y - q : y;
     }
@@ -56,11 +56,11 @@ __device__ __forceinline__ constexpr int32_t small_inverse(int32_t x, int32_t q)
 
 struct signed_range { int64_t lo, hi; };
 
-__device__ __forceinline__ constexpr int64_t range_abs(signed_range r) {
+__host__ __device__ constexpr int64_t range_abs(signed_range r) {
     return -r.lo > r.hi ? -r.lo : r.hi;
 }
 
-__device__ __forceinline__ constexpr signed_range remainder_range(int64_t bound, int32_t q) {
+__host__ __device__ constexpr signed_range remainder_range(int64_t bound, int32_t q) {
     const int64_t scale = 1LL << 32;
     const int64_t error = scale % q;
     return {-(bound * error / scale), q - 1 + (bound * error + scale - 1) / scale};

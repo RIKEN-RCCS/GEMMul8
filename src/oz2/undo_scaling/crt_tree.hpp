@@ -11,7 +11,7 @@ template <unsigned N>
 using packed_uint = std::conditional_t<(N <= 2), uint64_t, unsigned __int128>;
 
 template <unsigned N>
-__device__ constexpr packed_uint<N> pack(const uintx<N> &a) {
+__host__ __device__ __forceinline__ constexpr packed_uint<N> pack(const uintx<N> &a) {
     packed_uint<N> out = 0;
 #pragma unroll
     for (unsigned i = 0; i < N; ++i) out |= packed_uint<N>(a.word[i]) << (32 * i);
@@ -19,13 +19,13 @@ __device__ constexpr packed_uint<N> pack(const uintx<N> &a) {
 }
 
 template <unsigned N>
-__device__ constexpr void unpack(packed_uint<N> x, uintx<N> &a) {
+__host__ __device__ __forceinline__ constexpr void unpack(packed_uint<N> x, uintx<N> &a) {
 #pragma unroll
     for (unsigned i = 0; i < N; ++i) a.word[i] = uint32_t(x >> (32 * i));
 }
 
 template <unsigned TO, unsigned FROM>
-__device__ constexpr uintx<TO> resize(const uintx<FROM> &a) {
+__host__ __device__ __forceinline__ constexpr uintx<TO> resize(const uintx<FROM> &a) {
     uintx<TO> r{};
 #pragma unroll
     for (unsigned i = 0; i < TO && i < FROM; ++i) r.word[i] = a.word[i];
@@ -33,7 +33,7 @@ __device__ constexpr uintx<TO> resize(const uintx<FROM> &a) {
 }
 
 template <unsigned N>
-__device__ constexpr bool ge(const uintx<N> &a, const uintx<N> &b) {
+__host__ __device__ __forceinline__ constexpr bool ge(const uintx<N> &a, const uintx<N> &b) {
     if constexpr (N >= 2 && N <= 4) {
         return pack(a) >= pack(b);
     }
@@ -46,7 +46,7 @@ __device__ constexpr bool ge(const uintx<N> &a, const uintx<N> &b) {
 }
 
 template <unsigned N>
-__device__ constexpr uint32_t sub(uintx<N> &a, const uintx<N> &b) {
+__host__ __device__ __forceinline__ constexpr uint32_t sub(uintx<N> &a, const uintx<N> &b) {
     if constexpr (N >= 2 && N <= 4) {
         const auto x = pack(a), y = pack(b);
         unpack<N>(x - y, a);
@@ -63,7 +63,7 @@ __device__ constexpr uint32_t sub(uintx<N> &a, const uintx<N> &b) {
 }
 
 template <unsigned N>
-__device__ constexpr uint32_t add(uintx<N> &a, const uintx<N> &b) {
+__host__ __device__ __forceinline__ constexpr uint32_t add(uintx<N> &a, const uintx<N> &b) {
     if constexpr (N >= 2 && N <= 4) {
         const auto x = pack(a), y = pack(b), z = x + y;
         unpack<N>(z, a);
@@ -84,7 +84,7 @@ __device__ constexpr uint32_t add(uintx<N> &a, const uintx<N> &b) {
 }
 
 template <unsigned N>
-__device__ constexpr uintx<N> select(bool take_a, const uintx<N> &a, const uintx<N> &b) {
+__host__ __device__ __forceinline__ constexpr uintx<N> select(bool take_a, const uintx<N> &a, const uintx<N> &b) {
     uintx<N> r{};
 #pragma unroll
     for (unsigned i = 0; i < N; ++i) r.word[i] = take_a ? a.word[i] : b.word[i];
@@ -92,7 +92,7 @@ __device__ constexpr uintx<N> select(bool take_a, const uintx<N> &a, const uintx
 }
 
 template <unsigned N>
-__device__ constexpr uintx<N> sub_mod(uintx<N> a, const uintx<N> &b, const uintx<N> &p) {
+__host__ __device__ __forceinline__ constexpr uintx<N> sub_mod(uintx<N> a, const uintx<N> &b, const uintx<N> &p) {
     const uint32_t mask = 0U - sub(a, b);
     uintx<N> correction{};
 #pragma unroll
@@ -102,7 +102,7 @@ __device__ constexpr uintx<N> sub_mod(uintx<N> a, const uintx<N> &b, const uintx
 }
 
 template <unsigned N>
-__device__ constexpr uintx<N> half(uintx<N> a, uint32_t high = 0) {
+__host__ __device__ __forceinline__ constexpr uintx<N> half(uintx<N> a, uint32_t high = 0) {
 #pragma unroll
     for (unsigned j = N; j > 0; --j) {
         const unsigned i    = j - 1;
@@ -114,7 +114,7 @@ __device__ constexpr uintx<N> half(uintx<N> a, uint32_t high = 0) {
 }
 
 template <unsigned N>
-__device__ constexpr unsigned bits(const uintx<N> &a) {
+__host__ __device__ __forceinline__ constexpr unsigned bits(const uintx<N> &a) {
     unsigned out = 0;
     for (unsigned i = 0; i < N; ++i) {
         uint32_t x = a.word[i];
@@ -128,14 +128,14 @@ __device__ constexpr unsigned bits(const uintx<N> &a) {
     return out;
 }
 
-__device__ constexpr uint32_t negative_inverse32(uint32_t odd) {
+__host__ __device__ __forceinline__ constexpr uint32_t negative_inverse32(uint32_t odd) {
     uint32_t x = 1;
     for (unsigned i = 0; i < 5; ++i) x *= 2U - odd * x;
     return 0U - x;
 }
 
 template <unsigned OUT, unsigned A, unsigned B>
-__device__ constexpr uintx<OUT> multiply(const uintx<A> &a, const uintx<B> &b) {
+__host__ __device__ __forceinline__ constexpr uintx<OUT> multiply(const uintx<A> &a, const uintx<B> &b) {
     uintx<OUT> out{};
 #pragma unroll
     for (unsigned i = 0; i < A && i < OUT; ++i) {
