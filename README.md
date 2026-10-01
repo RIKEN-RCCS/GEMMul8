@@ -1191,6 +1191,7 @@ The following individuals helped conduct preliminary experiments on the B200 env
 - Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). DGEMM with Ozaki Scheme I/II on FP4 Tensor Cores: A Base-13 E2M1 Limb Representation, [doi.org/10.48550/arXiv.2608.06812](https://doi.org/10.48550/arXiv.2608.06812).
 - Caday P. (2026). The 2M Multiplication Algorithm for Complex Matrices, [doi.org/10.48550/arXiv.2609.05419](https://doi.org/10.48550/arXiv.2609.05419).
 - Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). AWE: Adaptive Weight Encoding for Exact Integer Matrix Products with Fewer GEMMs on FP4 Tensor Cores, [doi.org/10.48550/arXiv.2609.24519](https://doi.org/10.48550/arXiv.2609.24519).
+- Sugizaki Y. & Takahashi D. (2026). Acceleration of modular integer matrix multiplication using Ozaki scheme II (in Japanese), IPSJ SIG Technical Report on High Performance Computing, 2026-HPC-204 (5), 1-5, https://ipsj.ixsq.nii.ac.jp/records/2009152.
 
 ## Citations
 
@@ -1201,6 +1202,7 @@ The following individuals helped conduct preliminary experiments on the B200 env
 > - Kawakami S. & Takahashi D. (2026). Improved Scaling for Fast Mode of Ozaki Scheme II, [doi.org/10.48550/arXiv.2606.29129](https://doi.org/10.48550/arXiv.2606.29129).
 > - Caday P. (2026). The 2M Multiplication Algorithm for Complex Matrices, [doi.org/10.48550/arXiv.2609.05419](https://doi.org/10.48550/arXiv.2609.05419).
 > - Hayashi S., Mukunoki D., Hoshino T., Katagiri T. (2026). AWE: Adaptive Weight Encoding for Exact Integer Matrix Products with Fewer GEMMs on FP4 Tensor Cores, [doi.org/10.48550/arXiv.2609.24519](https://doi.org/10.48550/arXiv.2609.24519).
+> - Sugizaki Y. & Takahashi D. (2026). Acceleration of modular integer matrix multiplication using Ozaki scheme II (in Japanese), IPSJ SIG Technical Report on High Performance Computing, 2026-HPC-204 (5), 1-5, https://ipsj.ixsq.nii.ac.jp/records/2009152.
 
 ```bibtex
 @inproceedings{10.1145/3731599.3767539,
