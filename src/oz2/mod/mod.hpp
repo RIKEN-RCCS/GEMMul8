@@ -87,18 +87,30 @@ __device__ __forceinline__ common::fp64_mant_exp2 scaled_mant_exp(cuDoubleComple
 #define GEMMUL8_FP8_RUN_CPLX_SCALAR_STEP(I)                                                             \
     if constexpr (NUM_MODULI > (I)) {                                                                   \
         constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true>; \
-        mod_launch<modulus_id, V>(out0, out1, inc, v);                                                  \
+        if constexpr (common::fp8_plan::mixed_complex_v<NUM_MODULI>) {                                  \
+            constexpr auto s = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>;                     \
+            mod_launch<modulus_id, V>(out0, out0 + s.products * inc, inc, v);                           \
+            out0 += s.products * common::fp8_plan::complex_parts_v<s.p> * inc;                          \
+        } else {                                                                                        \
+            mod_launch<modulus_id, V>(out0, out1, inc, v);                                              \
+        }                                                                                               \
         const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;         \
-        out0 += step;                                                                                   \
+        if constexpr (!common::fp8_plan::mixed_complex_v<NUM_MODULI>) out0 += step;                     \
         out1 += step;                                                                                   \
     }
 
 #define GEMMUL8_FP8_RUN_CPLX_VEC4_STEP(I)                                                               \
     if constexpr (NUM_MODULI > (I)) {                                                                   \
         constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true>; \
-        mod_launch<modulus_id, V>(out0, out1, inc, v0, v1, v2, v3);                                     \
+        if constexpr (common::fp8_plan::mixed_complex_v<NUM_MODULI>) {                                  \
+            constexpr auto s = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>;                     \
+            mod_launch<modulus_id, V>(out0, out0 + s.products * inc, inc, v0, v1, v2, v3);              \
+            out0 += s.products * common::fp8_plan::complex_parts_v<s.p> * inc;                          \
+        } else {                                                                                        \
+            mod_launch<modulus_id, V>(out0, out1, inc, v0, v1, v2, v3);                                 \
+        }                                                                                               \
         const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;         \
-        out0 += step;                                                                                   \
+        if constexpr (!common::fp8_plan::mixed_complex_v<NUM_MODULI>) out0 += step;                     \
         out1 += step;                                                                                   \
     }
 

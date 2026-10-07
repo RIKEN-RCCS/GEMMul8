@@ -2,13 +2,37 @@
 #include "../common/common.hpp"
 #include "../common/table.hpp"
 
+#ifndef GEMMUL8_INT8_LOW_EXP
+    #if defined(__CUDACC__) && !defined(__HIPCC__)
+        #define GEMMUL8_INT8_LOW_EXP 1
+    #else
+        #define GEMMUL8_INT8_LOW_EXP 0
+    #endif
+#endif
+
+#ifndef GEMMUL8_INT8_BIASED_DP4A
+    #if defined(__CUDACC__) && !defined(__HIPCC__)
+        #define GEMMUL8_INT8_BIASED_DP4A 1
+    #else
+        #define GEMMUL8_INT8_BIASED_DP4A 0
+    #endif
+#endif
+
+#ifndef GEMMUL8_INT8_MOD255_BIAS
+    #if defined(__CUDACC__) && !defined(__HIPCC__)
+        #define GEMMUL8_INT8_MOD255_BIAS 1
+    #else
+        #define GEMMUL8_INT8_MOD255_BIAS 0
+    #endif
+#endif
+
 namespace gemmul8::mod {
 
 template <Backend BACKEND, unsigned IDX, bool COMPLEX>
 struct residue_traits {
     static constexpr uint32_t p = uint32_t(common::table::moduli<BACKEND, IDX, COMPLEX>);
     static_assert((BACKEND == Backend::INT8 && p <= 256U) ||
-                  (BACKEND == Backend::FP8 && p <= 2401U));
+                  (BACKEND == Backend::FP8 && p <= 32767U));
 
     // 2^(8*i) mod p, i = 0,...,8
     static constexpr uint32_t r00 = 1U % p;
@@ -104,6 +128,13 @@ struct int8_dot_traits : residue_traits<Backend::INT8, IDX, COMPLEX> {
         return c;
     }
 
+    static constexpr uint32_t bias_corr32 = (R::p - (128U * R::r24) % R::p) % R::p;
+    static constexpr uint32_t bias_corr64 = (R::p - (128U * R::r56) % R::p) % R::p;
+    static constexpr uint64_t biased_mant32_max =
+        255ULL * (R::r00 + R::r08 + R::r16 + R::r24) + bias_corr32;
+    static constexpr uint64_t biased_mant64_max =
+        255ULL * (R::r00 + R::r08 + R::r16 + R::r24 + R::r32 + R::r40 + R::r48 + R::r56) + bias_corr64;
+
     static constexpr uint64_t mant32_max = [] {
         const uint64_t positive = 255ULL * (R::r00 + R::r08 + R::r16) + 127ULL * R::r24;
         const uint64_t negative = 255ULL * (R::r00 + R::r08 + R::r16 + R::r24) + R::neg_corr_32;
@@ -122,6 +153,15 @@ struct int8_dot_traits : residue_traits<Backend::INT8, IDX, COMPLEX> {
             const bool hi      = bit >= 32U;
             const uint32_t val = uint32_t(1U) << (bit & 31U);
             const uint32_t raw = dot4_constexpr(val, hi ? weight_hi : weight_lo, 0U);
+            vmax               = raw > vmax ? raw : vmax;
+        }
+        return vmax;
+    }();
+
+    static constexpr uint32_t exp_first_lo_max = [] {
+        uint32_t vmax = 0U;
+        for (unsigned bit = 0; bit < 32U; ++bit) {
+            const uint32_t raw = dot4_constexpr(uint32_t(1U) << bit, weight_lo, 0U);
             vmax               = raw > vmax ? raw : vmax;
         }
         return vmax;
@@ -158,6 +198,9 @@ struct int8_dot_traits : residue_traits<Backend::INT8, IDX, COMPLEX> {
 
     static constexpr bool fp64_one_exp_pass_safe =
         mant64_max <= i32_max && fp64_scaled_mant_max * uint64_t(exp_first_max) <= i32_max;
+
+    static constexpr bool fp64_low_one_exp_pass_safe =
+        mant64_max <= i32_max && fp64_scaled_mant_max * uint64_t(exp_first_lo_max) <= i32_max;
 
     static_assert(mant32_max * uint64_t(exp_second_max) <= i32_max);
     static_assert(mant64_max * uint64_t(exp_second_max) <= i32_max);
@@ -224,6 +267,19 @@ __device__ __forceinline__ uint32_t reduce_i64_dot4(common::mant_t a) {
     const uint32_t acc0   = (a.hi < 0) ? D::neg_corr_64 : 0U;
     const uint32_t rem_hi = dot4_u8(uint32_t(a.hi), D::weight_hi, acc0);
     return dot4_u8(a.lo, D::weight_lo, rem_hi);
+}
+
+template <unsigned IDX, bool COMPLEX>
+__device__ __forceinline__ uint32_t reduce_i32_biased_dot4(int32_t a) {
+    using D = int8_dot_traits<IDX, COMPLEX>;
+    return dot4_u8(uint32_t(a) ^ 0x80000000U, D::weight_lo, D::bias_corr32);
+}
+
+template <unsigned IDX, bool COMPLEX>
+__device__ __forceinline__ uint32_t reduce_i64_biased_dot4(common::mant_t a) {
+    using D           = int8_dot_traits<IDX, COMPLEX>;
+    const uint32_t hi = dot4_u8(uint32_t(a.hi) ^ 0x80000000U, D::weight_hi, D::bias_corr64);
+    return dot4_u8(a.lo, D::weight_lo, hi);
 }
 
 template <unsigned IDX, bool COMPLEX, bool SECOND_PASS>
@@ -302,7 +358,12 @@ __device__ __forceinline__ int32_t mod_small(int32_t a) {
         return center_reduced<Backend::FP8, IDX, COMPLEX>(a & 1023);
     }
     if constexpr (BACKEND == Backend::INT8 && p == 255 && has_u8_dot4) {
+#if GEMMUL8_INT8_MOD255_BIAS != 0
+        // 2^31 == 128 (mod 255): sign-bit bias replaces the sign-dependent correction
+        const uint32_t s = dot4_u8(uint32_t(a) ^ 0x80000000U, 0x01010101U, 127U);
+#else
         const uint32_t s = dot4_u8(uint32_t(a), 0x01010101U, (a < 0) ? 254U : 0U);
+#endif
         const uint32_t t = (s & 255U) + (s >> 8);
         return center_reduced<Backend::INT8, IDX, COMPLEX>(int32_t(t));
     }
@@ -322,7 +383,9 @@ __device__ __forceinline__ int32_t mod_bounded(int32_t a) {
     constexpr uint64_t reciprocal = ((uint64_t(1) << 33) + p / 2) / p;
     constexpr int64_t error       = int64_t(reciprocal * p) - (int64_t(1) << 33);
     constexpr uint64_t abs_error  = error < 0 ? uint64_t(-error) : uint64_t(error);
-    if constexpr ((p & 1) && COMPLEX && 2ULL * ABS_MAX * e + p < scale) {
+    constexpr bool fractional     = COMPLEX || (BACKEND == Backend::FP8 && (p == 13 || p == 25 || p == 33));
+
+    if constexpr ((p & 1) && fractional && 2ULL * ABS_MAX * e + p < scale) {
         constexpr uint32_t bias = uint32_t((scale * (p / 2) + ABS_MAX * e) / p + 1);
         const uint32_t frac     = uint32_t(a) * m + bias;
         return int32_t(__umulhi(frac, uint32_t(p))) - p / 2;
@@ -344,9 +407,13 @@ __device__ __forceinline__ int32_t reduce_mant(common::mant_t a) {
         return int32_t(a.lo & 1023U);
     }
     if constexpr (BACKEND == Backend::INT8 && has_u8_dot4) {
-        return int32_t(reduce_i64_dot4<IDX, COMPLEX>(a)); // < 2^18
+        if constexpr (GEMMUL8_INT8_BIASED_DP4A != 0) {
+            return int32_t(reduce_i64_biased_dot4<IDX, COMPLEX>(a));
+        } else {
+            return int32_t(reduce_i64_dot4<IDX, COMPLEX>(a));
+        }
     }
-    if constexpr (BACKEND == Backend::FP8 && has_u16_dot2) {
+    if constexpr (BACKEND == Backend::FP8 && has_u16_dot2 && up <= 2401U) {
         const uint32_t raw = reduce_i64_fp8_dot2<IDX, COMPLEX>(a);
         return int32_t(mod_small_nowrap_u32<BACKEND, IDX, COMPLEX>(raw));
     }
@@ -373,7 +440,7 @@ __device__ __forceinline__ int32_t reduce_mant_large(common::mant_t a) {
     if constexpr (BACKEND == Backend::INT8 && has_u8_dot4) {
         return int32_t(reduce_i64_dot4<IDX, COMPLEX>(a));
     }
-    if constexpr (BACKEND == Backend::FP8 && has_u16_dot2) {
+    if constexpr (BACKEND == Backend::FP8 && has_u16_dot2 && up <= 2401U) {
         const uint32_t raw = reduce_i64_fp8_dot2<IDX, COMPLEX>(a);
         return int32_t(mod_small_nowrap_u32<BACKEND, IDX, COMPLEX>(raw));
     }
@@ -412,8 +479,9 @@ __device__ __forceinline__ int32_t mod_middle(common::mant_t a) {
     const int32_t rem = reduce_mant<BACKEND, IDX, COMPLEX>(a);
     if constexpr (BACKEND == Backend::INT8) {
         if constexpr (has_u8_dot4) {
-            using D = int8_dot_traits<IDX, COMPLEX>;
-            return mod_bounded<BACKEND, IDX, COMPLEX, D::mant64_max>(rem);
+            using D                  = int8_dot_traits<IDX, COMPLEX>;
+            constexpr uint64_t bound = GEMMUL8_INT8_BIASED_DP4A != 0 ? D::biased_mant64_max : D::mant64_max;
+            return mod_bounded<BACKEND, IDX, COMPLEX, bound>(rem);
         } else {
             return mod_small<BACKEND, IDX, COMPLEX>(rem);
         }
@@ -483,7 +551,15 @@ __device__ __forceinline__ int32_t mod_large(common::fp64_mant_exp a) {
     if constexpr (BACKEND == Backend::INT8 && has_u8_dot4) {
         using D                    = int8_dot_traits<IDX, COMPLEX>;
         constexpr bool second_pass = !D::fp64_one_exp_pass_safe;
-        const int32_t rem2         = reduce_exp<BACKEND, IDX, COMPLEX, second_pass>(a.exp);
+        const int32_t rem2         = [&] {
+            if constexpr (GEMMUL8_INT8_LOW_EXP != 0 && second_pass && D::fp64_low_one_exp_pass_safe) {
+                uint32_t raw = reduce_exp_dot4<IDX, COMPLEX, false>(a.exp);
+                if (a.exp.is_hi) raw = reduce_u32_dot4<IDX, COMPLEX>(raw);
+                return int32_t(raw);
+            } else {
+                return reduce_exp<BACKEND, IDX, COMPLEX, second_pass>(a.exp);
+            }
+        }();
         static_assert(second_pass || D::fp64_scaled_mant_max * uint64_t(D::exp_first_max) <= uint64_t(INT32_MAX));
         return mod_small<BACKEND, IDX, COMPLEX>(rem1 * rem2);
     } else {

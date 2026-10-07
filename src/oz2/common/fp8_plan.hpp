@@ -6,7 +6,7 @@ namespace gemmul8::common::fp8_plan {
 struct info {
     int32_t p;
     unsigned products;
-    int32_t w;
+    int32_t w; // 0: CRT; positive: AWE; negative: congruence encoding
     int32_t q[3];
     int32_t coefficient[3];
     unsigned max_abs;
@@ -17,6 +17,106 @@ constexpr unsigned modulus_index(unsigned p) { return 20U + p; }
 
 constexpr info get(int32_t p) {
     switch (p) {
+    case 13325:
+        return {
+            13325,
+            3U,
+            0,
+            {   25,    41,   13},
+            {-1599, -4550, 6150},
+            24U,
+            993
+        };
+    case 1617:
+        return {
+            1617,
+            2U,
+            0,
+            { 49, 33, 1},
+            {-33, 49, 0},
+            32U,
+            0
+        };
+    case 33:
+        return {
+            33,
+            1U,
+            0,
+            {33, 1, 1},
+            { 1, 0, 0},
+            16U,
+            0
+        };
+    case 53280:
+        return {
+            53280,
+            3U,
+            0,
+            {    45,    37,   32},
+            {-18944, 17280, 1665},
+            28U,
+            0
+        };
+    case 51168:
+        return {
+            51168,
+            3U,
+            0,
+            {   41,     39,    32},
+            {19968, -18368, -1599},
+            24U,
+            0
+        };
+    case 22496:
+        return {
+            22496,
+            3U,
+            0,
+            {  37,    19,   32},
+            {4256, -3552, -703},
+            20U,
+            0
+        };
+    case 391:
+        return {
+            391,
+            2U,
+            0,
+            { 23, 17, 1},
+            {-17, 69, 0},
+            11U,
+            0
+        };
+    case 943:
+        return {
+            943,
+            2U,
+            0,
+            { 41, 23, 1},
+            {-23, 41, 0},
+            24U,
+            0
+        };
+    case 527:
+        return {
+            527,
+            2U,
+            0,
+            { 31,  17, 1},
+            {-17, -93, 0},
+            15U,
+            0
+        };
+    case 1591:
+        return {
+            1591,
+            2U,
+            0,
+            { 43,  37, 1},
+            {-37, -86, 0},
+            26U,
+            0
+        };
     case 59163:
         return {
             59163,
@@ -447,6 +547,86 @@ constexpr info get(int32_t p) {
             28U,
             469
         };
+    case 1763:
+        return {
+            1763,
+            2U,
+            0,
+            {43,  41, 1},
+            {41, -43, 0},
+            26U,
+            0
+        };
+    case 1184:
+        return {
+            1184,
+            2U,
+            0,
+            {  32,  37, 1},
+            {-111, -64, 0},
+            20U,
+            0
+        };
+    case 7429:
+        return {
+            7429,
+            3U,
+            0,
+            {  19,    17,  23},
+            {2737, -3059, 323},
+            11U,
+            0
+        };
+    case 2021:
+        return {
+            2021,
+            2U,
+            0,
+            { 47, 43, 1},
+            {-43, 47, 0},
+            30U,
+            0
+        };
+    case 49:
+        return {
+            49,
+            1U,
+            0,
+            {49, 1, 1},
+            { 1, 0, 0},
+            32U,
+            0
+        };
+    case 343:
+        return {
+            343,
+            2U,
+            -7,
+            {49, 343, 1},
+            { 7,  -6, 0},
+            32U,
+            0
+        };
+    case 19305:
+        return {
+            19305,
+            3U,
+            -45,
+            { 135,    33,   39},
+            {8866, -9360, 6930},
+            28U,
+            0
+        };
+    case 11583:
+        return {
+            11583,
+            3U,
+            -27,
+            {   81,   33,    39},
+            {-5291, -351, -2079},
+            22U,
+            0
+        };
     default: return {};
     }
 }
@@ -455,6 +635,14 @@ template <int32_t P> inline constexpr info scheme = get(P);
 
 __host__ __device__ constexpr int32_t crt_unscale(int32_t p, unsigned j) {
     switch (p) {
+    case 1617: return j == 0 ? 12 : 8;
+    case 391: return j == 0 ? 2 : 1;
+    case 943: return j == 0 ? 4 : 3;
+    case 527: return j == 0 ? 12 : 6;
+    case 1591: return j == 0 ? 6 : 15;
+    case 1763: return j == 0 ? 8 : 15;
+    case 1184: return j == 0 ? 7 : 10;
+    case 2021: return j == 0 ? 23 : 21;
     case 2303: return j == 0 ? 5 : 27;
     case 899: return j == 0 ? 4 : 15;
     case 575: return j == 0 ? 13 : 14;
@@ -471,14 +659,126 @@ __host__ __device__ constexpr bool crt_scaled(int32_t p) {
     return crt_unscale(p, 0) != 1 || crt_unscale(p, 1) != 1;
 }
 
-inline constexpr int32_t real_prefix[]    = {59163, 2303, 1376, 899, 575, 1283, 1279, 1249, 323, 1223, 1201, 1193, 1181, 1177, 1171, 1163, 1153, 1151, 1129, 1123};
-inline constexpr int32_t real_20[]        = {65231, 2303, 992, 783, 575, 4199, 1283, 1279, 1249, 1223, 1201, 1193, 1181, 1171, 1163, 1153, 1151, 1129, 1123, 11};
-inline constexpr int32_t complex_small[]  = {18241, 1025, 1313, 1249, 1201, 1193};
-inline constexpr int32_t complex_medium[] = {1517, 725, 1313, 1249, 1201, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069};
-inline constexpr int32_t complex_large[]  = {6409, 1517, 25, 1249, 1201, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069, 1061, 1049, 1033, 1021, 1013, 1009};
+inline constexpr int32_t real_prefix[]       = {59163, 2303, 1376, 899, 575, 1283, 1279, 1249, 323, 1223, 1201, 1193, 1181, 1177, 1171, 1163, 1153, 1151, 1129, 1123};
+inline constexpr int32_t real_20[]           = {65231, 2303, 992, 783, 575, 4199, 1283, 1279, 1249, 1223, 1201, 1193, 1181, 1171, 1163, 1153, 1151, 1129, 1123, 11};
+inline constexpr int32_t complex_small[]     = {18241, 1025, 1313, 1249, 1201, 1193};
+inline constexpr int32_t complex_medium[]    = {1517, 725, 1313, 1249, 1201, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069};
+inline constexpr int32_t complex_large[]     = {6409, 1517, 25, 1249, 1201, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069, 1061, 1049, 1033, 1021, 1013, 1009};
+inline constexpr int32_t real_congruence6[]  = {19305, 22496, 2303, 1763, 391, 899};
+inline constexpr int32_t real_congruence7[]  = {1283, 391, 899, 19305, 22496, 2303, 1763};
+inline constexpr int32_t real_congruence8[]  = {2303, 1763, 899, 1283, 1279, 391, 19305, 22496};
+inline constexpr int32_t real_congruence9[]  = {22496, 1283, 343, 11583, 1279, 2021, 943, 527, 725};
+inline constexpr int32_t real_congruence10[] = {1283, 1279, 1249, 527, 725, 343, 11583, 22496, 2021, 943};
+inline constexpr int32_t real_congruence11[] = {2021, 943, 527, 1279, 1249, 1223, 22496, 1283, 725, 343, 11583};
+inline constexpr int32_t real_congruence12[] = {1249, 1223, 1201, 1283, 22496, 343, 1279, 11583, 2021, 943, 527, 725};
+inline constexpr int32_t real_congruence13[] = {1283, 1279, 1249, 1223, 1201, 1193, 527, 725, 343, 11583, 22496, 2021, 943};
+inline constexpr int32_t real_congruence14[] = {1201, 1193, 1181, 2021, 943, 527, 1279, 1249, 1223, 22496, 1283, 725, 343, 11583};
+inline constexpr int32_t real_congruence15[] = {1249, 1223, 1201, 1283, 22496, 343, 1193, 1181, 1171, 1279, 11583, 2021, 943, 527, 725};
+inline constexpr int32_t real_congruence16[] = {1283, 1279, 1249, 1223, 1201, 1193, 1181, 1171, 1163, 527, 725, 343, 11583, 22496, 2021, 943};
+inline constexpr int32_t real_congruence17[] = {1171, 1163, 1153, 1201, 1193, 1181, 2021, 943, 527, 1279, 1249, 1223, 22496, 1283, 725, 343, 11583};
+inline constexpr int32_t real_congruence18[] = {1249, 1223, 1201, 1193, 1181, 1171, 1163, 1153, 1151, 1283, 22496, 343, 1279, 11583, 2021, 943, 527, 725};
+inline constexpr int32_t real_congruence19[] = {1283, 1279, 1249, 1223, 1201, 1193, 1181, 1171, 1163, 1153, 1151, 1129, 527, 725, 343, 11583, 22496, 2021, 943};
+inline constexpr int32_t real_congruence20[] = {11583, 22496, 49, 1279, 1249, 1223, 1201, 1193, 1181, 1171, 1163, 1153, 1151, 1129, 1123, 1283, 527, 725, 2021, 943};
 
 constexpr int32_t modulus(unsigned n, unsigned i, bool complex) {
-    if (!complex) return n == 20U ? real_20[i] : real_prefix[i];
+    if (!complex) {
+        if (n == 2) {
+            constexpr int32_t small[] = {65231, 2303};
+            return small[i];
+        }
+        if (n == 3 || n == 4) {
+            constexpr int32_t p[] = {53280, 2303, 1763, 899};
+            return p[i];
+        }
+        if (n == 5) {
+            constexpr int32_t p[] = {51168, 2303, 1591, 899, 575};
+            return p[i];
+        }
+        switch (n) {
+        case 6U: return real_congruence6[i];
+        case 7U: return real_congruence7[i];
+        case 8U: return real_congruence8[i];
+        case 9U: return real_congruence9[i];
+        case 10U: return real_congruence10[i];
+        case 11U: return real_congruence11[i];
+        case 12U: return real_congruence12[i];
+        case 13U: return real_congruence13[i];
+        case 14U: return real_congruence14[i];
+        case 15U: return real_congruence15[i];
+        case 16U: return real_congruence16[i];
+        case 17U: return real_congruence17[i];
+        case 18U: return real_congruence18[i];
+        case 19U: return real_congruence19[i];
+        case 20U: return real_congruence20[i];
+        default: return real_prefix[i];
+        }
+    }
+    switch (n) {
+    case 3U: {
+        constexpr int32_t p[] = {49, 13325, 18241};
+        return p[i];
+    }
+    case 4U: {
+        constexpr int32_t p[] = {49, 2021, 13325, 18241};
+        return p[i];
+    }
+    case 7U: {
+        constexpr int32_t p[] = {49, 2021, 18241, 1025, 1313, 1249, 1201};
+        return p[i];
+    }
+    case 8U: {
+        constexpr int32_t p[] = {49, 2021, 18241, 1025, 1313, 1249, 1201, 1193};
+        return p[i];
+    }
+    case 9U: {
+        constexpr int32_t p[] = {49, 2021, 18241, 1025, 1313, 1249, 1201, 1193, 1181};
+        return p[i];
+    }
+    case 10U: {
+        constexpr int32_t p[] = {49, 2021, 18241, 1025, 1313, 1249, 1201, 1193, 1181, 1153};
+        return p[i];
+    }
+    case 11U: {
+        constexpr int32_t p[] = {49, 2021, 18241, 1025, 1313, 1249, 1201, 1193, 1181, 1153, 1129};
+        return p[i];
+    }
+    case 12U: {
+        constexpr int32_t p[] = {49, 2021, 18241, 1025, 1313, 1249, 1201, 1193, 1181, 1153, 1129, 1117};
+        return p[i];
+    }
+    case 13U: {
+        constexpr int32_t p[] = {49, 2021, 18241, 1025, 1313, 1249, 1201, 1193, 1181, 1153, 1129, 1117, 1109};
+        return p[i];
+    }
+    case 14U: {
+        constexpr int32_t p[] = {33, 49, 2021, 18241, 13325, 1249, 1201, 1193, 1181, 1153, 1129, 1117, 1109, 1097};
+        return p[i];
+    }
+    case 15U: {
+        constexpr int32_t p[] = {1617, 2021, 1249, 6409, 25, 1201, 1517, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093};
+        return p[i];
+    }
+    case 16U: {
+        constexpr int32_t p[] = {1617, 2021, 1249, 6409, 25, 1201, 1517, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069};
+        return p[i];
+    }
+    case 17U: {
+        constexpr int32_t p[] = {1617, 2021, 1249, 6409, 25, 1201, 1517, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069, 1061};
+        return p[i];
+    }
+    case 18U: {
+        constexpr int32_t p[] = {1617, 2021, 1249, 6409, 25, 1201, 1517, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069, 1061, 1049};
+        return p[i];
+    }
+    case 19U: {
+        constexpr int32_t p[] = {1617, 2021, 1249, 6409, 25, 1201, 1517, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069, 1061, 1049, 1033};
+        return p[i];
+    }
+    case 20U: {
+        constexpr int32_t p[] = {1617, 2021, 1249, 6409, 25, 1201, 1517, 1193, 1181, 1153, 1129, 1117, 1109, 1097, 1093, 1069, 1061, 1049, 1033, 1021};
+        return p[i];
+    }
+    }
     return n <= 6U    ? complex_small[i]
            : n <= 14U ? complex_medium[i]
                       : complex_large[i];
@@ -488,14 +788,33 @@ constexpr unsigned index(unsigned n, unsigned i, bool complex) {
     return modulus_index(unsigned(modulus(n, i, complex)));
 }
 
+constexpr unsigned complex_parts(int32_t p, bool herk = false) {
+    return get(p).root_minus_one == 0 ? 3U : (herk ? 1U : 2U);
+}
+
+template <int32_t P, bool Herk = false>
+inline constexpr unsigned complex_parts_v = complex_parts(P, Herk);
+
+constexpr bool mixed_complex(unsigned n) {
+    for (unsigned i = 0; i < n; ++i)
+        if (complex_parts(modulus(n, i, true)) == 3U) return true;
+    return false;
+}
+
+template <unsigned N>
+inline constexpr bool mixed_complex_v = mixed_complex(N);
+
 constexpr unsigned planes(unsigned n, unsigned first, unsigned count, bool complex) {
     unsigned sum = 0;
-    for (unsigned i = first; i < first + count; ++i) sum += get(modulus(n, i, complex)).products;
+    for (unsigned i = first; i < first + count; ++i) {
+        const int32_t p = modulus(n, i, complex);
+        sum += get(p).products * (complex ? complex_parts(p) : 1U);
+    }
     return sum;
 }
 
 template <unsigned N, bool Complex>
-inline constexpr unsigned plane_count = planes(N, 0U, N, Complex);
+inline constexpr unsigned plane_count = Complex ? (planes(N, 0U, N, true) + 1U) / 2U : planes(N, 0U, N, false);
 
 constexpr unsigned k_block(int32_t p, bool first, unsigned alignment = 256U) {
     const auto s          = get(p);
@@ -506,6 +825,16 @@ constexpr unsigned k_block(int32_t p, bool first, unsigned alignment = 256U) {
 } // namespace gemmul8::common::fp8_plan
 
 #define GEMMUL8_FP8_FOR_EACH_MODULUS(M) \
+    M(13325)                            \
+    M(1617)                             \
+    M(33)                               \
+    M(53280)                            \
+    M(51168)                            \
+    M(22496)                            \
+    M(391)                              \
+    M(943)                              \
+    M(527)                              \
+    M(1591)                             \
     M(59163)                            \
     M(2303)                             \
     M(1376)                             \
@@ -548,9 +877,22 @@ constexpr unsigned k_block(int32_t p, bool first, unsigned alignment = 256U) {
     M(1033)                             \
     M(1021)                             \
     M(1013)                             \
-    M(1009)
+    M(1009)                             \
+    M(1763)                             \
+    M(1184)                             \
+    M(7429)                             \
+    M(2021)                             \
+    M(49)                               \
+    M(343)                              \
+    M(19305)                            \
+    M(11583)
 
 #define GEMMUL8_FP8_FOR_EACH_COMPLEX_MODULUS(M) \
+    M(13325)                                    \
+    M(1617)                                     \
+    M(33)                                       \
+    M(2021)                                     \
+    M(49)                                       \
     M(1249)                                     \
     M(1201)                                     \
     M(1193)                                     \

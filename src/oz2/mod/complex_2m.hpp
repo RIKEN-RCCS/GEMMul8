@@ -3,6 +3,23 @@
 
 namespace gemmul8::mod {
 
+template <Backend B, unsigned IDX>
+inline constexpr bool complex_3m =
+    B == Backend::FP8 &&
+    common::fp8_plan::get(common::table::moduli<B, IDX, true>).root_minus_one == 0;
+
+template <unsigned IDX, bool Flip = false, bool Herk = false, bool Raw = false>
+__device__ __forceinline__ int2 reconstruct_complex_3m(
+    int32_t a, int32_t b, int32_t c,
+    int32_t opposite = 0 //
+) {
+    constexpr int32_t p = common::table::moduli<Backend::FP8, IDX, true>;
+    const int32_t re    = Herk ? a + b : a - b;
+    const int32_t im    = Herk ? c - opposite : c - a - b;
+    return {mod_bounded<Backend::FP8, IDX, true, Raw ? (3ULL << 24) : 2ULL * p>(re),
+            mod_bounded<Backend::FP8, IDX, true, Raw ? (3ULL << 24) : 2ULL * p>(Flip ? -im : im)};
+}
+
 // A+ = Ar+s*Ai, A- = Ar-s*Ai, where s*s == -1 (mod p)
 template <Backend BACKEND, unsigned IDX> struct complex_2m_traits {
     static constexpr int32_t p = common::table::moduli<BACKEND, IDX, true>;

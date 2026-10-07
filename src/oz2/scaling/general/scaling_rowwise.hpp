@@ -10,7 +10,7 @@
 namespace gemmul8::scaling::general {
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ>
-__global__ void scaling_rowwise_full_kernel(
+__device__ __forceinline__ void scaling_rowwise_full_kernel_body(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
     common::matptr_t<common::low_t<BACKEND>, common::isComplex<T>> A_lo,
@@ -67,8 +67,15 @@ __global__ void scaling_rowwise_full_kernel(
     }
 }
 
+GEMMUL8_FP8_KERNEL_EX(scaling_rowwise_full_kernel,
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ),
+                      (T, BACKEND, NUM_MODULI, CONJ),
+                      (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_scalar_registers<T, NUM_MODULI> != 0U),
+                      (fp8_scalar_registers<T, NUM_MODULI>),
+                      (BACKEND == Backend::FP8 ? fp8_refined_registers<T, NUM_MODULI, fp8_kernel_kind::row> : 0U))
+
 template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ>
-__global__ void scaling_rowwise_full_vec4_kernel(
+__device__ __forceinline__ void scaling_rowwise_full_vec4_kernel_body(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
     common::matptr_t<common::low_t<BACKEND>, common::isComplex<T>> A_lo,
@@ -121,6 +128,13 @@ __global__ void scaling_rowwise_full_vec4_kernel(
         }
     }
 }
+
+GEMMUL8_FP8_KERNEL_EX(scaling_rowwise_full_vec4_kernel,
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ),
+                      (T, BACKEND, NUM_MODULI, CONJ),
+                      (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_vector_registers<T, NUM_MODULI> != 0U),
+                      (fp8_vector_registers<T, NUM_MODULI>),
+                      (BACKEND == Backend::FP8 ? fp8_refined_registers<T, NUM_MODULI, fp8_kernel_kind::vector> : 0U))
 
 template <bool UPPER,
           typename T, Backend BACKEND, unsigned NUM_MODULI,

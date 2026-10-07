@@ -108,6 +108,7 @@ FLAGS := -std=c++20 -O3 -I../include
 FLAGS += -ffp-contract=off
 FLAGS += -Wno-unused-result -Wno-unused-command-line-argument -Wno-unused-value
 FLAGS += -DOCML_BASIC_ROUNDED_OPERATIONS
+FLAGS += -fconstexpr-steps=4194304
 LIBS := -lamd_smi -lamdhip64 -lhipblas -lhipblaslt -ldl -Wl,../lib/libgemmul8.a
 ARCH := --offload-arch=$(GPU_ARCH)
 

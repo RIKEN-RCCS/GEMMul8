@@ -47,16 +47,10 @@ inline void call_gemm_tn_raw(
         return;
     }
 
-    update_lt_layouts(h, m, n, k, lda, ldb, ldc, 1, 0, 0, 0);
     auto &plan = get_or_create_plan<BACKEND>(
         h, m, n, k, 1, lda, ldb, ldc, 0, 0, 0, LtBatchKind::None);
 
-    const size_t ws = std::min(h.workspaceSizeInBytes, plan.ws);
-
-    cublasLtMatmul(h.cublasLt, h.opDesc,
-                   alpha, A, h.Adesc, B, h.Bdesc,
-                   beta, C, h.Cdesc, C, h.Cdesc,
-                   &plan.heur.algo, h.workspace, ws, stream);
+    launch_lt_plan<BACKEND>(stream, h, plan, alpha, A, B, beta, C, C);
 }
 
 template <Backend BACKEND>
@@ -147,16 +141,21 @@ inline void call_gemm_tn_strided_batched_raw(
         return;
     }
 
-    update_lt_layouts(h, m, n, k, lda, ldb, ldc, batchCount, strideA, strideB, strideC);
     auto &plan = get_or_create_plan<BACKEND>(
         h, m, n, k, batchCount, lda, ldb, ldc, strideA, strideB, strideC, LtBatchKind::Strided);
 
-    const size_t ws = std::min(h.workspaceSizeInBytes, plan.ws);
-
-    cublasLtMatmul(h.cublasLt, h.opDesc,
-                   alpha, A, h.Adesc, B, h.Bdesc,
-                   beta, C, h.Cdesc, C, h.Cdesc,
-                   &plan.heur.algo, h.workspace, ws, stream);
+    if (!plan.valid) {
+        const auto *a = static_cast<const low_t<BACKEND> *>(A);
+        const auto *b = static_cast<const low_t<BACKEND> *>(B);
+        auto *c       = static_cast<hi_t<BACKEND> *>(C);
+        for (int i = 0; i < batchCount; ++i) {
+            call_gemm_tn_raw<BACKEND>(stream, h, m, n, k, alpha,
+                                      a + int64_t(i) * strideA, lda, b + int64_t(i) * strideB, ldb,
+                                      beta, c + int64_t(i) * strideC, ldc);
+        }
+        return;
+    }
+    launch_lt_plan<BACKEND>(stream, h, plan, alpha, A, B, beta, C, C);
 }
 
 template <Backend BACKEND>
@@ -256,16 +255,10 @@ inline void call_gemm_tn_pointer_batched_raw(
         return;
     }
 
-    update_lt_layouts_pointer_array(h, m, n, k, lda, ldb, ldc, batchCount);
     auto &plan = get_or_create_plan<BACKEND>(
         h, m, n, k, batchCount, lda, ldb, ldc, 0, 0, 0, LtBatchKind::PointerArray);
 
-    const size_t ws = std::min(h.workspaceSizeInBytes, plan.ws);
-
-    cublasLtMatmul(h.cublasLt, h.opDesc,
-                   alpha, Aarray, h.Adesc, Barray, h.Bdesc,
-                   beta, Carray, h.Cdesc, Carray, h.Cdesc,
-                   &plan.heur.algo, h.workspace, ws, stream);
+    launch_lt_plan<BACKEND>(stream, h, plan, alpha, Aarray, Barray, beta, Carray, Carray);
 #endif
 }
 

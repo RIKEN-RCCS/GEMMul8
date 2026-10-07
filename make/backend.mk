@@ -62,6 +62,7 @@ FLAGS := -std=c++20 -O3 -Iinclude -Isrc
 FLAGS += -ffp-contract=off
 FLAGS += -Wno-unused-result -Wno-unused-command-line-argument -Wno-unused-value
 FLAGS += -DOCML_BASIC_ROUNDED_OPERATIONS -DGPU_ARCH=$(GPU_ARCH)
+FLAGS += -fconstexpr-steps=4194304
 LIBS := -lamd_smi -lamdhip64 -lhipblas -lhipblaslt -ldl
 ARCH := --offload-arch=$(GPU_ARCH)
 FLAGS_PIC := $(FLAGS) -fPIC

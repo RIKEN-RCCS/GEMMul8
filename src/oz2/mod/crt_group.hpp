@@ -12,8 +12,26 @@ template <Backend B, unsigned N, bool Complex,
 struct crt_group_constants {
     static constexpr unsigned first = First;
     static constexpr bool center    = Herk || End == First + 1;
-    static constexpr bool raw       = B == Backend::FP8 && !center &&
-                                      (!Complex || Vector == 1 || End == First + 2);
+
+    static constexpr bool mixed = B == Backend::FP8 && Complex && [] {
+        for (unsigned i = First; i < End; ++i) {
+            if (common::fp8_plan::complex_parts(common::crt_modulus<B, Complex>(N, i)) == 3U) return true;
+        }
+        return false;
+    }();
+
+    static constexpr bool raw =
+        B == Backend::FP8 &&
+        !center &&
+        !(Complex && End == First + 2 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First)).w == 0 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First + 1)).w == 0 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First)).products == 3 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First + 1)).products == 3) &&
+        !(Complex && End == First + 2 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First)).w > 0 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First + 1)).w > 0) &&
+        (!Complex || Vector == 1 || End == First + 2 || mixed);
 
     using Moduli = common::crt_moduli<B, N, Complex>;
     using Leaf   = undo_scaling::crt::leaf_constants<Moduli, First, End>;
@@ -33,12 +51,12 @@ struct crt_group_constants {
             return int32_t(v > q / 2 ? v - q : v);
         };
         int32_t a = int32_t(e), b = 0;
-        if constexpr (Complex) {
+        if constexpr (Complex && !(B == Backend::FP8 && common::fp8_plan::get(p).root_minus_one == 0)) {
             constexpr unsigned index = common::table::active_index<B, N, I, true>;
             constexpr int64_t hr     = complex_2m_traits<B, index>::half_root;
             a                        = centered(e * ((p + 1) / 2));
             b                        = centered(e * hr);
-        }
+        } else if constexpr (Complex) b = int32_t(e);
 
         const auto append = [&](unsigned j, int32_t ar, int32_t ai, uint64_t re_limit, uint64_t im_limit) {
             d.re[I - First][j] = ar;
@@ -50,13 +68,16 @@ struct crt_group_constants {
         if constexpr (raw) {
             constexpr auto scheme = common::fp8_plan::scheme<int32_t(p)>;
             for (unsigned j = 0; j < scheme.products; ++j) {
-                append(j, centered(int64_t(a) * scheme.coefficient[j]),
+                append(j,
+                       centered(int64_t(a) * scheme.coefficient[j]),
                        centered(int64_t(b) * scheme.coefficient[j]),
-                       (1ULL << 24) * (Complex ? 2U : 1U), 1ULL << 25);
+                       (1ULL << 24) * (Complex ? 2U : 1U),
+                       (1ULL << 24) * (scheme.root_minus_one == 0 ? 3U : 2U));
             }
         } else {
-            append(0, a, b, center ? (Complex ? p - 1 : p / 2) : (Complex ? 4U : 2U) * p,
-                   center ? p - 1 : 4U * p);
+            append(0, a, b,
+                   center ? (Complex ? p - 1 : p / 2) : (Complex ? 4U : 2U) * p,
+                   center ? (mixed ? 2U * p : p - 1) : (mixed ? 6U : 4U) * p);
         }
 
         if constexpr (I + 1 < End) coefficient<I + 1>(d);
@@ -76,6 +97,30 @@ struct crt_group_constants {
     }
 
     static_assert(bounded(re_bias + coefficients.re_bound) && bounded(im_bias + coefficients.im_bound));
+
+    static constexpr unsigned narrow_shift = [] {
+        constexpr uint64_t maximum = re_bias + coefficients.re_bound;
+        for (unsigned s = Leaf::q_bits; s > 0; --s) {
+            const unsigned shift = s - 1;
+            const uint64_t scale = 1ULL << shift;
+            const uint64_t high  = maximum >> shift;
+            if (high > UINT32_MAX) break;
+            if ((scale << 32) / Leaf::q > UINT32_MAX) continue;
+            const uint64_t error = (high * ((scale << 32) % Leaf::q) + UINT32_MAX) >> 32;
+            const uint64_t bound = uint64_t(Leaf::q) + scale - 2 + error;
+            if (bound <= UINT32_MAX && bound < 2ULL * Leaf::q) return shift;
+        }
+        return 32U;
+    }();
+
+    __device__ __forceinline__ static uint32_t reduce_narrow(uint64_t x) {
+        static_assert(narrow_shift < 32);
+        constexpr uint32_t reciprocal = uint32_t((1ULL << (narrow_shift + 32)) / Leaf::q);
+        const uint32_t quotient       = __umulhi(uint32_t(x >> narrow_shift), reciprocal);
+        const uint32_t r              = uint32_t(x) - quotient * Leaf::q;
+        const uint32_t reduced        = r - Leaf::q;
+        return r < reduced ? r : reduced;
+    }
 };
 
 template <Backend B, unsigned N, bool Complex,
@@ -116,7 +161,11 @@ struct crt_group_input {
             if constexpr (Vector == 1) return int32_t(p[i]);
             else {
                 using V = std::conditional_t<Vector == 2, float2, float4>;
-                return int32_t(component<Lane>(reinterpret_cast<const V *>(p)[i / Vector]));
+                if constexpr (Complex) {
+                    return int32_t(component<Lane>(reinterpret_cast<const V *>(p)[i / Vector]));
+                } else {
+                    return int32_t(component<Lane>(__ldg(reinterpret_cast<const V *>(p) + i / Vector)));
+                }
             }
         } else if constexpr (Vector == 1) {
             if constexpr (B == Backend::INT8) {
@@ -150,10 +199,18 @@ struct crt_group_input {
         else return common::fp8_plan::get(common::crt_modulus<B, Complex>(N, i)).products;
     }
 
+    template <unsigned I> static constexpr bool three =
+        B == Backend::FP8 && Complex &&
+        common::fp8_plan::get(common::crt_modulus<B, Complex>(N, I)).root_minus_one == 0;
+
     static constexpr unsigned offset(unsigned i) {
         unsigned r = 0;
         for (unsigned j = First; j < i; ++j) {
-            r += products(j) * (Complex && !Herk ? 2U : 1U);
+            unsigned parts = Complex && !Herk ? 2U : 1U;
+            if constexpr (B == Backend::FP8 && Complex) {
+                parts = common::fp8_plan::complex_parts(common::crt_modulus<B, Complex>(N, j), Herk);
+            }
+            r += products(j) * parts;
         }
         return r;
     }
@@ -167,7 +224,15 @@ struct crt_group_input {
         const Hi *p        = ptr + size_t(sizeC) * off;
         const int32_t plus = residue<I, Vector, Lane, Raw>(p, index);
         if constexpr (!Complex) return {plus, 0};
-        else if constexpr (Herk) {
+        else if constexpr (three<I>) {
+            const int32_t b = residue<I, Vector, Lane, Raw>(p + size_t(sizeC) * count, index);
+            const int32_t c = residue<I, Vector, Lane, Raw>(p + size_t(sizeC) * (2U * count), index);
+            if constexpr (Herk) {
+                return {plus + b, c - int32_t(int16_t(opposite >> (16U * (I - First))))};
+            } else {
+                return {plus - b, c - plus - b};
+            }
+        } else if constexpr (Herk) {
             constexpr unsigned width = B == Backend::INT8 ? 8U : 16U;
             using S                  = std::conditional_t<B == Backend::INT8, int8_t, int16_t>;
             return {plus, int32_t(S(opposite >> (width * (I - First))))};
@@ -179,7 +244,7 @@ struct crt_group_input {
     template <unsigned I = First>
     __device__ __forceinline__ Opposite pack_opposite(size_t i) const {
         constexpr unsigned width = B == Backend::INT8 ? 8U : 16U;
-        constexpr unsigned off   = offset_v<I>;
+        constexpr unsigned off   = offset_v<I> + (three<I> ? 2U * products_v<I> : 0U);
         const auto r             = residue<I>(ptr + sizeC * off, i);
         Opposite v               = Opposite(uint32_t(r) & ((1U << width) - 1U)) << (width * (I - First));
         if constexpr (I + 1 < End) {
@@ -195,13 +260,20 @@ __device__ __forceinline__ void crt_group_accumulate(const Input &in, Acc &re, A
     const auto v         = in.template load<I, Vector, Lane, Constants::raw, Plane>();
     constexpr unsigned j = I - Constants::first;
     constexpr int32_t a  = Constants::coefficients.re[j][Plane];
+
     if constexpr (Complex) {
         constexpr int32_t b = Constants::coefficients.im[j][Plane];
-        re += Acc(v.x + v.y) * a;
-        im += Acc(v.y - v.x) * b;
+        if constexpr (Input::template three<I>) {
+            re += Acc(v.x) * a;
+            im += Acc(v.y) * b;
+        } else {
+            re += Acc(v.x + v.y) * a;
+            im += Acc(v.y - v.x) * b;
+        }
     } else {
         re += Acc(v.x) * a;
     }
+
     if constexpr (Constants::raw && Plane + 1 < Input::template products_v<I>) {
         crt_group_accumulate<Constants, I, End, Complex, Vector, Lane, Plane + 1>(in, re, im);
     } else if constexpr (I + 1 < End) {
@@ -216,17 +288,27 @@ template <Backend B, unsigned N, bool Complex,
 __device__ __forceinline__ auto crt_group_value(const crt_group_input<B, N, Complex, First, End, Herk> &in) {
     using K = crt_group_constants<B, N, Complex, First, End, Herk, Vector>;
     using L = typename K::Leaf;
+
     if constexpr (!Complex && End == First + 1) {
         constexpr int32_t p = int32_t(L::q);
         const int32_t a     = in.template load<First, Vector, Lane>().x;
         return uint32_t(a < 0 ? a + p : a);
     }
+
     using Acc = std::conditional_t<(K::re_bias + K::coefficients.re_bound <= INT32_MAX &&
                                     K::im_bias + K::coefficients.im_bound <= INT32_MAX),
                                    int32_t, int64_t>;
     Acc re = Acc(K::re_bias), im = Acc(K::im_bias);
     crt_group_accumulate<K, First, End, Complex, Vector, Lane>(in, re, im);
-    const uint32_t a = L::template reduce<K::re_bias + K::coefficients.re_bound>(uint64_t(re));
+
+    const uint32_t a = [&] {
+        if constexpr (B == Backend::FP8 && !Complex && K::raw && K::narrow_shift < 32) {
+            return K::reduce_narrow(uint64_t(re));
+        } else {
+            return L::template reduce<K::re_bias + K::coefficients.re_bound>(uint64_t(re));
+        }
+    }();
+
     if constexpr (!Complex) {
         return a;
     } else {
@@ -252,9 +334,10 @@ __device__ __forceinline__ auto crt_group_value(const crt_group_input<B, N, Comp
     #define GEMMUL8_CRT_MIN_BLOCKS 1
 #endif
 
-template <Backend B, unsigned N, bool Complex, unsigned First, unsigned End,
-          cublasFillMode_t Uplo, bool Herk = false, bool Flip = false>
-__global__ __launch_bounds__(256, Herk ? 1 : GEMMUL8_CRT_MIN_BLOCKS) void mod_hi2group_kernel(
+template <Backend B, unsigned N, bool Complex,
+          unsigned First, unsigned End,
+          cublasFillMode_t Uplo, bool Herk, bool Flip>
+__device__ __forceinline__ void mod_hi2group_body(
     unsigned n, unsigned ldc, unsigned sizeC,
     const common::hi_t<B> *__restrict__ hi,
     std::conditional_t<Complex, uint2, uint32_t> *__restrict__ out //
@@ -331,6 +414,62 @@ __global__ __launch_bounds__(256, Herk ? 1 : GEMMUL8_CRT_MIN_BLOCKS) void mod_hi
         }
     }
 }
+
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000 && \
+    ((__CUDACC_VER_MAJOR__ > 12) || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 9))
+
+template <Backend B, unsigned N, bool Complex, cublasFillMode_t Uplo, bool Herk>
+inline constexpr bool fp8_group_register_limit =
+    B == Backend::FP8 && !Complex && !Herk && Uplo == CUBLAS_FILL_MODE_FULL && N == 7U;
+
+#else
+
+template <Backend B, unsigned N, bool Complex, cublasFillMode_t Uplo, bool Herk>
+inline constexpr bool fp8_group_register_limit = false;
+
+#endif
+
+#if defined(__CUDACC__) && \
+    ((__CUDACC_VER_MAJOR__ > 12) || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 9))
+
+template <Backend B, unsigned N, bool Complex,
+          unsigned First, unsigned End,
+          cublasFillMode_t Uplo, bool Herk = false, bool Flip = false>
+requires(fp8_group_register_limit<B, N, Complex, Uplo, Herk>)
+__global__ __maxnreg__(30) void mod_hi2group_kernel(
+    unsigned n, unsigned ldc, unsigned sizeC,
+    const common::hi_t<B> *__restrict__ hi,
+    std::conditional_t<Complex, uint2, uint32_t> *__restrict__ out //
+) {
+    mod_hi2group_body<B, N, Complex, First, End, Uplo, Herk, Flip>(n, ldc, sizeC, hi, out);
+}
+
+template <Backend B, unsigned N, bool Complex,
+          unsigned First, unsigned End,
+          cublasFillMode_t Uplo, bool Herk = false, bool Flip = false>
+requires(!fp8_group_register_limit<B, N, Complex, Uplo, Herk>)
+__global__ __launch_bounds__(256, Herk ? 1 : GEMMUL8_CRT_MIN_BLOCKS) void mod_hi2group_kernel(
+    unsigned n, unsigned ldc, unsigned sizeC,
+    const common::hi_t<B> *__restrict__ hi,
+    std::conditional_t<Complex, uint2, uint32_t> *__restrict__ out //
+) {
+    mod_hi2group_body<B, N, Complex, First, End, Uplo, Herk, Flip>(n, ldc, sizeC, hi, out);
+}
+
+#else
+
+template <Backend B, unsigned N, bool Complex,
+          unsigned First, unsigned End,
+          cublasFillMode_t Uplo, bool Herk = false, bool Flip = false>
+__global__ __launch_bounds__(256, Herk ? 1 : GEMMUL8_CRT_MIN_BLOCKS) void mod_hi2group_kernel(
+    unsigned n, unsigned ldc, unsigned sizeC,
+    const common::hi_t<B> *__restrict__ hi,
+    std::conditional_t<Complex, uint2, uint32_t> *__restrict__ out //
+) {
+    mod_hi2group_body<B, N, Complex, First, End, Uplo, Herk, Flip>(n, ldc, sizeC, hi, out);
+}
+
+#endif
 
 template <Backend B, unsigned N, bool Complex,
           unsigned First, unsigned End,

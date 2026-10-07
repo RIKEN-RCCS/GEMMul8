@@ -10,7 +10,8 @@
 
 namespace gemmul8::scaling::general {
 
-template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ,
+          bool FloatMantissa = false, bool SplitPadding = false>
 __device__ __forceinline__ void scaling_colwise_full_device(
     const unsigned rows_A,
     const T *const __restrict__ in,
@@ -26,9 +27,21 @@ __device__ __forceinline__ void scaling_colwise_full_device(
         out1 = reinterpret_cast<Low4 *>(A_lo.ptr1) + col_idx * lda_lo4;
     }
 
-    for (unsigned i = threadIdx.x; i < lda_lo4; i += blockDim.x) {
+    size_t active = lda_lo4;
+    if constexpr (SplitPadding) {
+        active = min(lda_lo4, size_t((rows_A >> 2) + unsigned((rows_A & 3U) != 0)));
+        for (unsigned i = active + threadIdx.x; i < lda_lo4; i += blockDim.x) {
+            if constexpr (common::isComplex<T>) {
+                mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out0 + i, out1 + i, incA_lo4);
+            } else {
+                mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out0 + i, incA_lo4);
+            }
+        }
+    }
+
+    for (unsigned i = threadIdx.x; i < active; i += blockDim.x) {
         const unsigned row0 = i << 2;
-        if (row0 >= rows_A) {
+        if (!SplitPadding && row0 >= rows_A) {
             if constexpr (common::isComplex<T>) {
                 mod::ModUnrollFillZero<BACKEND, NUM_MODULI, Low4>::run(out0 + i, out1 + i, incA_lo4);
             } else {
@@ -36,14 +49,21 @@ __device__ __forceinline__ void scaling_colwise_full_device(
             }
             continue;
         }
+
         const T z  = common::Tconst<T>::zero();
         const T a0 = in[row0];
         const T a1 = row0 + 1U < rows_A ? in[row0 + 1U] : z;
         const T a2 = row0 + 2U < rows_A ? in[row0 + 2U] : z;
         const T a3 = row0 + 3U < rows_A ? in[row0 + 3U] : z;
+
         if constexpr (common::isComplex<T>) {
             scaling_colwise_store4_complex<T, BACKEND, NUM_MODULI, CONJ>(
                 out0, out1, incA_lo4, i, a0, a1, a2, a3, sft);
+        } else if constexpr (FloatMantissa) {
+            static_assert(BACKEND == Backend::FP8 && !common::isComplex<T>);
+            mod::ModUnroll<NUM_MODULI, T>::run(out0 + i, incA_lo4,
+                                               trunc_scalbn_to_fp(a0, sft), trunc_scalbn_to_fp(a1, sft),
+                                               trunc_scalbn_to_fp(a2, sft), trunc_scalbn_to_fp(a3, sft));
         } else {
             scaling_colwise_store4_real<T, BACKEND, NUM_MODULI, CONJ>(
                 out0, incA_lo4, i, a0, a1, a2, a3, sft);
@@ -232,7 +252,7 @@ __device__ __forceinline__ void scaling_colwise_lower_device(
 }
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ>
-__global__ void scaling_colwise_full_tiled_kernel(
+__device__ __forceinline__ void scaling_colwise_full_tiled_kernel_body(
     const unsigned rows_A,
     const unsigned cols_A,
     const T *const __restrict__ A,
@@ -265,7 +285,6 @@ __global__ void scaling_colwise_full_tiled_kernel(
         return;
     }
 
-    // Share the expensive modular conversion between dense and tail groups.
     const T z               = common::Tconst<T>::zero();
     const T a0              = in[row0];
     const T a1              = row0 + 1U < rows_A ? in[row0 + 1U] : z;
@@ -282,13 +301,19 @@ __global__ void scaling_colwise_full_tiled_kernel(
     }
 }
 
+GEMMUL8_FP8_KERNEL(scaling_colwise_full_tiled_kernel,
+                   (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ),
+                   (T, BACKEND, NUM_MODULI, CONJ),
+                   (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_vector_registers<T, NUM_MODULI> != 0U),
+                   (fp8_vector_registers<T, NUM_MODULI>))
+
 template <typename T>
 __device__ __forceinline__ common::vec4_t<T> load_vec4_aligned(const T *ptr) {
     return *reinterpret_cast<const common::vec4_t<T> *>(ptr);
 }
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ>
-__global__ void scaling_colwise_full_tiled_aligned_kernel(
+__device__ __forceinline__ void scaling_colwise_full_tiled_aligned_kernel_body(
     const unsigned rows_A,
     const unsigned cols_A,
     const T *const __restrict__ A,
@@ -327,6 +352,12 @@ __global__ void scaling_colwise_full_tiled_aligned_kernel(
             a4.x, a4.y, a4.z, a4.w, sft);
     }
 }
+
+GEMMUL8_FP8_KERNEL(scaling_colwise_full_tiled_aligned_kernel,
+                   (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ),
+                   (T, BACKEND, NUM_MODULI, CONJ),
+                   (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_vector_registers<T, NUM_MODULI, true> != 0U),
+                   (fp8_vector_registers<T, NUM_MODULI, true>))
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ>

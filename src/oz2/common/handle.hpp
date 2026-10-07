@@ -1,8 +1,20 @@
 #pragma once
 #include "include.hpp"
+#include <cstdio>
 #include "../../config/config.hpp"
 
+#ifndef GEMMUL8_LT_TRACE
+    #define GEMMUL8_LT_TRACE 0
+#endif
+
 namespace gemmul8::common {
+
+inline void lt_check_status(cublasStatus_t status, const char *operation) {
+    if (status != CUBLAS_STATUS_SUCCESS) {
+        std::fprintf(stderr, "GEMMul8: %s failed (status=%d).\n", operation, int(status));
+        std::abort();
+    }
+}
 
 template <Func FUNC>
 inline int block_size_setting(int arch, cublasFillMode_t uplo_A, cublasFillMode_t uplo_B) noexcept {
@@ -95,6 +107,7 @@ struct LtMatmulKey {
     int64_t lda, ldb, ldc;
     int64_t strideA, strideB, strideC;
     LtBatchKind batchKind;
+    size_t workspaceLimit;
 
     bool operator==(const LtMatmulKey &o) const noexcept {
         return m == o.m &&
@@ -107,7 +120,8 @@ struct LtMatmulKey {
                strideA == o.strideA &&
                strideB == o.strideB &&
                strideC == o.strideC &&
-               batchKind == o.batchKind;
+               batchKind == o.batchKind &&
+               workspaceLimit == o.workspaceLimit;
     }
 };
 
@@ -131,13 +145,18 @@ struct LtMatmulKeyHash {
         combine(h, static_cast<size_t>(x.strideC));
 
         combine(h, static_cast<size_t>(x.batchKind));
+        combine(h, x.workspaceLimit);
         return h;
     }
 };
 
 struct LtMatmulPlan {
     cublasLtMatmulHeuristicResult_t heur{};
-    size_t ws = 0;
+    size_t ws                   = 0;
+    cublasStatus_t query_status = CUBLAS_STATUS_NOT_SUPPORTED;
+    int returned                = 0;
+    bool valid                  = false;
+    LtMatmulKey key{};
 };
 
 struct Handle_t {
@@ -160,6 +179,9 @@ struct Handle_t {
     cublasLtMatrixLayout_t Adesc    = nullptr;
     cublasLtMatrixLayout_t Bdesc    = nullptr;
     cublasLtMatrixLayout_t Cdesc    = nullptr;
+
+    LtMatmulKey active_layout{};
+    bool active_layout_valid = false;
 
     int arch = 0;
     int nB   = 0;
@@ -193,6 +215,8 @@ inline void set_handle(
     constexpr cublasOperation_t transa = CUBLAS_OP_T;
     constexpr cublasOperation_t transb = CUBLAS_OP_N;
 
+    h.plan_cache.clear();
+    h.active_layout_valid  = false;
     h.modulus_complex      = false;
     h.matprod_k_blocking   = false;
     h.workspaceSizeInBytes = workspaceSizeInBytes;
@@ -205,34 +229,35 @@ inline void set_handle(
     h.nB = block_size<FUNC>(h.arch, uplo_A, uplo_B);
 
     if (h.kind == HandleKind::cuBLASLt) {
-        cublasLtMatmulDescCreate(&h.opDesc, CUBLAS_COMPUTE_TYPE, CUDA_R_HIGH);
-        cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_TRANSA, &transa, sizeof(transa));
-        cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_TRANSB, &transb, sizeof(transb));
+        lt_check_status(cublasLtMatmulDescCreate(&h.opDesc, CUBLAS_COMPUTE_TYPE, CUDA_R_HIGH), "cublasLtMatmulDescCreate");
+        lt_check_status(cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_TRANSA, &transa, sizeof(transa)), "cublasLtMatmulDescSetAttribute");
+        lt_check_status(cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_TRANSB, &transb, sizeof(transb)), "cublasLtMatmulDescSetAttribute");
 
         if constexpr (BACKEND == Backend::FP8) {
             int32_t scale_mode = CUBLASLT_MATMUL_MATRIX_SCALE_SCALAR_32F;
-            cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &scale_mode, sizeof(scale_mode));
-            cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &scale_mode, sizeof(scale_mode));
+            lt_check_status(cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &scale_mode, sizeof(scale_mode)), "cublasLtMatmulDescSetAttribute");
+            lt_check_status(cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &scale_mode, sizeof(scale_mode)), "cublasLtMatmulDescSetAttribute");
 
 #if defined(__CUDACC__)
             int8_t fast_accum = 0;
-            cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_FAST_ACCUM, &fast_accum, sizeof(fast_accum));
-            cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_SCALE_TYPE, &CUDA_R_HIGH, sizeof(CUDA_R_HIGH));
-            cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_COMPUTE_TYPE, &CUBLAS_COMPUTE_TYPE, sizeof(CUBLAS_COMPUTE_TYPE));
+            lt_check_status(cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_FAST_ACCUM, &fast_accum, sizeof(fast_accum)), "cublasLtMatmulDescSetAttribute");
+            lt_check_status(cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_SCALE_TYPE, &CUDA_R_HIGH, sizeof(CUDA_R_HIGH)), "cublasLtMatmulDescSetAttribute");
+            lt_check_status(cublasLtMatmulDescSetAttribute(h.opDesc, CUBLASLT_MATMUL_DESC_COMPUTE_TYPE, &CUBLAS_COMPUTE_TYPE, sizeof(CUBLAS_COMPUTE_TYPE)), "cublasLtMatmulDescSetAttribute");
 #endif
         }
 
-        cublasLtMatmulPreferenceCreate(&h.pref);
-        cublasLtMatmulPreferenceSetAttribute(h.pref, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspaceSizeInBytes, sizeof(workspaceSizeInBytes));
+        lt_check_status(cublasLtMatmulPreferenceCreate(&h.pref), "cublasLtMatmulPreferenceCreate");
+        lt_check_status(cublasLtMatmulPreferenceSetAttribute(h.pref, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspaceSizeInBytes, sizeof(workspaceSizeInBytes)), "cublasLtMatmulPreferenceSetAttribute");
 
-        cublasLtMatrixLayoutCreate(&h.Adesc, CUDA_R_LOW, k, m, (int64_t)lda);
-        cublasLtMatrixLayoutCreate(&h.Bdesc, CUDA_R_LOW, k, n, (int64_t)ldb);
-        cublasLtMatrixLayoutCreate(&h.Cdesc, CUDA_R_HIGH, m, n, (int64_t)ldc);
+        lt_check_status(cublasLtMatrixLayoutCreate(&h.Adesc, CUDA_R_LOW, k, m, (int64_t)lda), "cublasLtMatrixLayoutCreate");
+        lt_check_status(cublasLtMatrixLayoutCreate(&h.Bdesc, CUDA_R_LOW, k, n, (int64_t)ldb), "cublasLtMatrixLayoutCreate");
+        lt_check_status(cublasLtMatrixLayoutCreate(&h.Cdesc, CUDA_R_HIGH, m, n, (int64_t)ldc), "cublasLtMatrixLayoutCreate");
     }
 }
 
 inline void cleanup_handle(Handle_t &h) {
     h.plan_cache.clear();
+    h.active_layout_valid = false;
     if (h.kind == HandleKind::cuBLASLt) {
         if (h.Adesc) cublasLtMatrixLayoutDestroy(h.Adesc), h.Adesc = nullptr;
         if (h.Bdesc) cublasLtMatrixLayoutDestroy(h.Bdesc), h.Bdesc = nullptr;
@@ -258,29 +283,29 @@ inline void update_lt_layouts(
     const int64_t rowsB = k, colsB = n, ldB = (int64_t)ldb;
     const int64_t rowsC = m, colsC = n, ldC = (int64_t)ldc;
 
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsA, sizeof(rowsA));
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsA, sizeof(colsA));
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldA, sizeof(ldA));
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount));
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideA, sizeof(strideA));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsA, sizeof(rowsA)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsA, sizeof(colsA)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldA, sizeof(ldA)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideA, sizeof(strideA)), "cublasLtMatrixLayoutSetAttribute");
 
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsB, sizeof(rowsB));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsB, sizeof(colsB));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldB, sizeof(ldB));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideB, sizeof(strideB));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsB, sizeof(rowsB)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsB, sizeof(colsB)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldB, sizeof(ldB)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideB, sizeof(strideB)), "cublasLtMatrixLayoutSetAttribute");
 
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsC, sizeof(rowsC));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsC, sizeof(colsC));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldC, sizeof(ldC));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideC, sizeof(strideC));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsC, sizeof(rowsC)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsC, sizeof(colsC)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldC, sizeof(ldC)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &strideC, sizeof(strideC)), "cublasLtMatrixLayoutSetAttribute");
 
 #if defined(__CUDACC__)
     const cublasLtBatchMode_t mode = CUBLASLT_BATCH_MODE_STRIDED;
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode)), "cublasLtMatrixLayoutSetAttribute");
 #endif
 }
 
@@ -295,27 +320,43 @@ inline void update_lt_layouts_pointer_array(
     const int64_t rowsB = k, colsB = n, ldB = static_cast<int64_t>(ldb);
     const int64_t rowsC = m, colsC = n, ldC = static_cast<int64_t>(ldc);
 
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsA, sizeof(rowsA));
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsA, sizeof(colsA));
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldA, sizeof(ldA));
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsA, sizeof(rowsA)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsA, sizeof(colsA)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldA, sizeof(ldA)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount)), "cublasLtMatrixLayoutSetAttribute");
 
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsB, sizeof(rowsB));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsB, sizeof(colsB));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldB, sizeof(ldB));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsB, sizeof(rowsB)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsB, sizeof(colsB)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldB, sizeof(ldB)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount)), "cublasLtMatrixLayoutSetAttribute");
 
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsC, sizeof(rowsC));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsC, sizeof(colsC));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldC, sizeof(ldC));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_ROWS, &rowsC, sizeof(rowsC)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_COLS, &colsC, sizeof(colsC)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_LD, &ldC, sizeof(ldC)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batchCount, sizeof(batchCount)), "cublasLtMatrixLayoutSetAttribute");
 
     const cublasLtBatchMode_t mode = CUBLASLT_BATCH_MODE_POINTER_ARRAY;
-    cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode));
-    cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode));
-    cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode));
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode)), "cublasLtMatrixLayoutSetAttribute");
+    lt_check_status(cublasLtMatrixLayoutSetAttribute(h.Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_MODE, &mode, sizeof(mode)), "cublasLtMatrixLayoutSetAttribute");
 }
 #endif
+
+template <Backend BACKEND>
+inline void report_lt_plan(const Handle_t &h, const LtMatmulKey &key,
+                           const LtMatmulPlan &plan, const char *reason,
+                           cublasStatus_t launch_status = CUBLAS_STATUS_SUCCESS) {
+    std::fprintf(stderr,
+                 "GEMMul8 Lt: %s; backend=%s arch=%d m=%d n=%d k=%d batch=%d kind=%d "
+                 "lda=%lld ldb=%lld ldc=%lld strideA=%lld strideB=%lld strideC=%lld "
+                 "workspace=%zu query_status=%d returned=%d candidate_state=%d launch_status=%d\n",
+                 reason, BACKEND == Backend::FP8 ? "FP8" : "INT8", h.arch,
+                 key.m, key.n, key.k, key.batchCount, int(key.batchKind),
+                 (long long)key.lda, (long long)key.ldb, (long long)key.ldc,
+                 (long long)key.strideA, (long long)key.strideB, (long long)key.strideC,
+                 key.workspaceLimit, int(plan.query_status), plan.returned,
+                 int(plan.heur.state), int(launch_status));
+}
 
 template <Backend BACKEND>
 inline LtMatmulPlan &get_or_create_plan(
@@ -329,37 +370,95 @@ inline LtMatmulPlan &get_or_create_plan(
     LtBatchKind batchKind //
 ) {
     LtMatmulKey key{
-        m, n, k,
-        batchCount,
-        static_cast<int64_t>(lda),
-        static_cast<int64_t>(ldb),
-        static_cast<int64_t>(ldc),
-        strideA,
-        strideB,
-        strideC,
-        batchKind};
+        m, n, k, batchCount,
+        static_cast<int64_t>(lda), static_cast<int64_t>(ldb), static_cast<int64_t>(ldc),
+        strideA, strideB, strideC, batchKind, h.workspaceSizeInBytes};
 
     auto it = h.plan_cache.find(key);
+    // Negative entries mean an unsupported configuration, not an initialized
+    // algorithm. Avoid repeatedly switching descriptors to a rejected mode.
+    if (it != h.plan_cache.end() && !it->second.valid) return it->second;
+
+    if (!h.active_layout_valid || !(h.active_layout == key)) {
+#if defined(__CUDACC__)
+        if (batchKind == LtBatchKind::PointerArray) {
+            update_lt_layouts_pointer_array(h, m, n, k, lda, ldb, ldc, batchCount);
+        } else
+#endif
+        {
+            update_lt_layouts(h, m, n, k, lda, ldb, ldc, batchCount, strideA, strideB, strideC);
+        }
+        h.active_layout       = key;
+        h.active_layout_valid = true;
+    }
     if (it != h.plan_cache.end()) return it->second;
 
+    // A previous set_handle may have used a different workspace budget.
+    lt_check_status(cublasLtMatmulPreferenceSetAttribute(
+                        h.pref, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+                        &h.workspaceSizeInBytes, sizeof(h.workspaceSizeInBytes)),
+                    "cublasLtMatmulPreferenceSetAttribute(workspace)");
+
     LtMatmulPlan plan{};
-    int returned = 0;
+    plan.key            = key;
+    plan.heur.state     = CUBLAS_STATUS_NOT_SUPPORTED;
+    constexpr int count = 8;
+    cublasLtMatmulHeuristicResult_t candidates[count]{};
+    plan.query_status = cublasLtMatmulAlgoGetHeuristic(
+        h.cublasLt, h.opDesc, h.Adesc, h.Bdesc, h.Cdesc, h.Cdesc,
+        h.pref, count, candidates, &plan.returned);
 
-    cublasLtMatmulAlgoGetHeuristic(
-        h.cublasLt,
-        h.opDesc,
-        h.Adesc, h.Bdesc, h.Cdesc, h.Cdesc,
-        h.pref,
-        1,
-        &plan.heur,
-        &returned);
-
-    assert(returned > 0);
-
-    plan.ws = plan.heur.workspaceSize;
-
-    auto [pos, _] = h.plan_cache.emplace(key, plan);
+    if (plan.query_status != CUBLAS_STATUS_SUCCESS &&
+        plan.query_status != CUBLAS_STATUS_NOT_SUPPORTED) {
+        report_lt_plan<BACKEND>(h, key, plan, "heuristic API failed");
+        std::abort();
+    }
+    if (plan.query_status == CUBLAS_STATUS_SUCCESS) {
+        for (int i = 0; i < std::min(plan.returned, count); ++i) {
+            plan.heur = candidates[i];
+            if (candidates[i].state == CUBLAS_STATUS_SUCCESS &&
+                candidates[i].workspaceSize <= h.workspaceSizeInBytes) {
+                plan.ws    = candidates[i].workspaceSize;
+                plan.valid = true;
+                break;
+            }
+        }
+    }
+    if (!plan.valid && GEMMUL8_LT_TRACE) {
+        report_lt_plan<BACKEND>(h, key, plan, "no usable algorithm; caller may fall back");
+    }
+    auto [pos, inserted] = h.plan_cache.emplace(key, plan);
     return pos->second;
+}
+
+template <Backend BACKEND>
+inline bool supports_lt_pointer_batch(Handle_t &h, int m, int n, int k, int batch,
+                                      size_t lda, size_t ldb, size_t ldc) {
+    const LtMatmulKey key{m, n, k, batch, int64_t(lda), int64_t(ldb), int64_t(ldc),
+                          0, 0, 0, LtBatchKind::PointerArray, h.workspaceSizeInBytes};
+    const auto it = h.plan_cache.find(key);
+    if (it != h.plan_cache.end()) return it->second.valid;
+    return get_or_create_plan<BACKEND>(h, m, n, k, batch, lda, ldb, ldc, 0, 0, 0,
+                                       LtBatchKind::PointerArray)
+        .valid;
+}
+
+template <Backend BACKEND>
+inline void launch_lt_plan(
+    const cudaStream_t stream, Handle_t &h, const LtMatmulPlan &plan,
+    const void *alpha, const void *A, const void *B,
+    const void *beta, const void *C, void *D) {
+    if (!plan.valid || plan.ws > h.workspaceSizeInBytes || (plan.ws && !h.workspace)) {
+        report_lt_plan<BACKEND>(h, plan.key, plan, "no executable plan/workspace");
+        std::abort();
+    }
+    const auto status = cublasLtMatmul(h.cublasLt, h.opDesc,
+                                       alpha, A, h.Adesc, B, h.Bdesc, beta, C, h.Cdesc, D, h.Cdesc,
+                                       &plan.heur.algo, h.workspace, plan.ws, stream);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+        report_lt_plan<BACKEND>(h, plan.key, plan, "cublasLtMatmul failed", status);
+        std::abort();
+    }
 }
 
 } // namespace gemmul8::common

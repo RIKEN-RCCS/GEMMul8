@@ -7,6 +7,7 @@ namespace gemmul8::common::fp8_plan {
 template <int32_t Q>
 __device__ __forceinline__ int32_t reduce_int_nowrap(int32_t x) {
     static_assert(Q >= 3);
+    if constexpr ((Q & (Q - 1)) == 0) return x & (Q - 1);
     constexpr int32_t inv = int32_t((uint64_t(1) << 32) / Q);
     const int32_t k       = __mulhi(x, inv);
     return int32_t(uint32_t(x) - uint32_t(k) * uint32_t(Q));
@@ -99,6 +100,28 @@ __device__ __forceinline__ int32_t reconstruct_garner(float c0, float c1, float 
 template <int32_t P, bool Center = true>
 __device__ __forceinline__ int32_t reconstruct(float c0, float c1, float c2) {
     constexpr auto s = scheme<P>;
+
+    if constexpr (s.w < 0 && s.products == 3) {
+        constexpr unsigned shift = [] {
+            unsigned k = 0;
+            for (unsigned v = P; v >= 4U; v >>= 1U) ++k;
+            return k;
+        }();
+        constexpr uint64_t scale      = 1ULL << shift;
+        constexpr uint64_t reciprocal = (scale << 32) / P;
+        constexpr uint64_t bound      = uint64_t(reconstruction_bound(s, 7U));
+        constexpr uint64_t high_bound = (bound + scale - 1) / scale;
+        constexpr uint64_t error      = (high_bound * ((scale << 32) % P) + UINT32_MAX) >> 32;
+        static_assert(reciprocal <= INT32_MAX && high_bound <= INT32_MAX);
+        static_assert(error <= P / 2 && scale - 1 + error <= P / 2);
+        const int64_t x = int64_t(int32_t(c0)) * s.coefficient[0] +
+                          int64_t(int32_t(c1)) * s.coefficient[1] +
+                          int64_t(int32_t(c2)) * s.coefficient[2];
+        const int32_t q = __mulhi(int32_t(x >> shift), int32_t(reciprocal));
+        const int32_t r = int32_t(uint32_t(x) - uint32_t(q) * uint32_t(P));
+        return (Center && r > P / 2) ? r - P : r;
+    }
+
     if constexpr (s.w == 0 && s.products >= 2 && !crt_scaled(P)) {
         using G = garner_plan<P>;
 
@@ -108,6 +131,7 @@ __device__ __forceinline__ int32_t reconstruct(float c0, float c1, float c2) {
             return reconstruct_garner<P, Center>(c0, c1, c2);
         }
     }
+
     int32_t x = s.coefficient[0] * reconstruction_input<P, 0>(c0);
     if constexpr (s.products > 1) {
         x += s.coefficient[1] * reconstruction_input<P, 1>(c1);

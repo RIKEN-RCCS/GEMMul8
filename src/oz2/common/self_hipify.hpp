@@ -423,7 +423,7 @@
     #define __nv_fp8_storage_t    __hip_fp8_storage_t
     #define __nv_fp8x4_storage_t  __hip_fp8x4_storage_t
     #define cudaError_t           hipError_t
-    #define cudaDataType_t        hipblasDatatype_t
+    #define cudaDataType_t        hipDataType
     #define cudaStream_t          hipStream_t
     #define cudaPointerAttributes hipPointerAttribute_t
     #define cudaEvent_t           hipEvent_t

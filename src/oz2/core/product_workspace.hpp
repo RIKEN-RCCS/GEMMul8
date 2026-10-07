@@ -20,8 +20,14 @@ struct product_workspace {
 
     static constexpr unsigned planes(unsigned n, unsigned i, unsigned count) {
         unsigned sum = 0;
-        for (unsigned j = 0; j < count; ++j) sum += products(n, i + j);
-        return parts * sum;
+        for (unsigned j = 0; j < count; ++j) {
+            unsigned c = parts;
+            if constexpr (BACKEND == Backend::FP8 && Complex) {
+                c = common::fp8_plan::complex_parts(common::fp8_plan::modulus(n, i + j, true), Herk);
+            }
+            sum += c * products(n, i + j);
+        }
+        return sum;
     }
 
     static size_t pointer_count(unsigned n, unsigned i, unsigned count) {

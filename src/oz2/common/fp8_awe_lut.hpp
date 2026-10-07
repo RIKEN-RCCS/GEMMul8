@@ -12,7 +12,57 @@ constexpr uint32_t format_byte(uint32_t x) {
 #endif
 }
 
-template <unsigned N> struct packed_lut { uint32_t value[N]{}; };
+template <unsigned N, typename T = uint32_t> struct packed_lut { T value[N]{}; };
+
+constexpr int congruence_limb(int x, int q) {
+    x %= q;
+    if (x < 0) x += q;
+    if (x > q / 2) x -= q;
+    if ((x > 16 || x < -16) && (x & 1)) x += x < 0 ? q : -q;
+    return x;
+}
+
+template <int32_t P> constexpr auto make_congruence_encoding() {
+    using T = std::conditional_t<scheme<P>.products == 2, uint16_t, uint32_t>;
+    packed_lut<P, T> out{};
+    for (int i = 0; i < P; ++i) {
+        const int a = i - P / 2;
+        int u = 0, v = 0, w = 0;
+        if constexpr (P == 343) {
+            // a = 7*u - 6*v; u == v (mod 7), hence a*b = 7*U - 6*V.
+            int best = INT32_MAX;
+            for (int x = -32; x <= 32; ++x) {
+                if ((x > 16 || x < -16) && (x & 1)) continue;
+                const int y = ((7 * x - a) * 286 % P + P) % P;
+                const int z = y > P / 2 ? y - P : y;
+                if (z < -32 || z > 32 || ((z < -16 || z > 16) && (z & 1)) || (x - z) % 7) continue;
+                const int ax = x < 0 ? -x : x, az = z < 0 ? -z : z;
+                const int score = 129 * (ax > az ? ax : az) + ax + az;
+                if (score < best) {
+                    best = score;
+                    u    = x;
+                    v    = z;
+                }
+            }
+            if (best == INT32_MAX) {
+                out.value[i] = T(-1);
+                continue;
+            }
+        } else {
+            static_assert(P == 19305 || P == 11583);
+            // a = u + r*digit, 3 | r
+            constexpr int r = -scheme<P>.w;
+            u               = congruence_limb(a, r);
+            const int digit = (a - u) / r;
+            v               = congruence_limb(22 * digit + 12 * a, 33);
+            w               = congruence_limb(13 * (u + digit) + 27 * a, 39);
+        }
+        out.value[i] = T(format_byte(make_f8::encode_limb(u)) |
+                         (format_byte(make_f8::encode_limb(v)) << 8) |
+                         (format_byte(make_f8::encode_limb(w)) << 16));
+    }
+    return out;
+}
 
 // signed (a,b,a+b) table
 template <int32_t P> constexpr auto make_encoding() {
@@ -58,11 +108,26 @@ template <int32_t P> constexpr auto make_encoding() {
 }
 
 template <int32_t P> struct encoding {
-    static constexpr auto data = make_encoding<P>();
+    static constexpr auto data = [] {
+        if constexpr (scheme<P>.w < 0) return make_congruence_encoding<P>();
+        else return make_encoding<P>();
+    }();
+    static_assert(
+        [] {
+            if constexpr (scheme<P>.w < 0) {
+                for (const auto x : data.value) {
+                    for (unsigned j = 0; j < scheme<P>.products; ++j)
+                        if (((x >> (8 * j)) & 0x7fU) > 0x60U + 8U * FP8_FNUZ) return false;
+                }
+            }
+            return true;
+        }(),
+        "The congruence encoding must cover every residue with exact FP8 limbs");
 };
 
 template <int32_t P> constexpr auto make_wide_encoding() {
-    packed_lut<2 * P + 1> out{};
+    using T = std::conditional_t<scheme<P>.products == 2, uint16_t, uint32_t>;
+    packed_lut<2 * P + 1, T> out{};
     for (int i = 0; i <= 2 * P; ++i) out.value[i] = encoding<P>::data.value[i % P];
     return out;
 }

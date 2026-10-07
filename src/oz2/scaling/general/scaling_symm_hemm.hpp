@@ -43,7 +43,7 @@ __global__ void scaling_symm_hemm_offdiag_kernel(
 
     const unsigned row = rowBase + threadIdx.x;
 
-#pragma unroll(common::isComplex<T> ? 2 : 1)
+#pragma unroll common::isComplex < T> ? 2 : 1
     for (unsigned j = 0; j < common::TILE_DIM; j += threads_y_symm_hemm<T>) {
         const unsigned yy = threadIdx.y + j;
         if (yy >= common::TILE_DIM) continue;
@@ -54,7 +54,7 @@ __global__ void scaling_symm_hemm_offdiag_kernel(
     }
     __syncthreads();
 
-#pragma unroll(common::isComplex<T> ? 2 : 1)
+#pragma unroll common::isComplex < T> ? 2 : 1
     for (unsigned j = 0; j < common::TILE_DIM; j += threads_y_symm_hemm<T>) {
         const unsigned yy = threadIdx.y + j;
         if (yy >= common::TILE_DIM) continue;
@@ -96,7 +96,7 @@ __global__ void scaling_symm_hemm_diag_kernel(
         sft_tile[threadIdx.x] = (idx < n) ? -sftA[idx] : 0;
     }
 
-#pragma unroll(common::isComplex<T> ? 2 : 1)
+#pragma unroll common::isComplex < T> ? 2 : 1
     for (unsigned j = 0; j < common::TILE_DIM; j += threads_y_symm_hemm<T>) {
         const unsigned yy = threadIdx.y + j;
         if (yy >= common::TILE_DIM) continue;
@@ -115,7 +115,7 @@ __global__ void scaling_symm_hemm_diag_kernel(
     }
     __syncthreads();
 
-#pragma unroll(common::isComplex<T> ? 2 : 1)
+#pragma unroll common::isComplex < T> ? 2 : 1
     for (unsigned j = 0; j < common::TILE_DIM; j += threads_y_symm_hemm<T>) {
         const unsigned yy = threadIdx.y + j;
         if (yy >= common::TILE_DIM) continue;

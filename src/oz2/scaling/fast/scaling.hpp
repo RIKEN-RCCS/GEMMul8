@@ -11,7 +11,7 @@ namespace gemmul8::scaling::fast {
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ>
-__global__ void scaling_colwise(
+__device__ __forceinline__ void scaling_colwise_body(
     const unsigned rows_A,
     const T *const __restrict__ A, const size_t lda,
     common::matptr_t<common::low_t<BACKEND>, common::isComplex<T>> A_lo,
@@ -27,9 +27,36 @@ __global__ void scaling_colwise(
     const int32_t sft = calc_sft_colwise<T, BACKEND, NUM_MODULI, UPLO, DIAG>(
         rows_A, in, sftA, ssum);
 
-    general::scaling_colwise_device<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ>(
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1000 && __CUDA_ARCH__ < 1200
+    if constexpr (BACKEND == Backend::FP8 &&
+                  std::is_same_v<T, float> &&
+                  UPLO == CUBLAS_FILL_MODE_FULL &&
+                  NUM_MODULI == 11U) {
+        general::scaling_colwise_full_device<T, BACKEND, NUM_MODULI, CONJ, true>(
+            rows_A, in, A_lo, lda_lo, incA_lo, sft);
+    } else if constexpr (__CUDA_ARCH__ == 1030 &&
+                         BACKEND == Backend::FP8 &&
+                         std::is_same_v<T, double> &&
+                         UPLO == CUBLAS_FILL_MODE_FULL &&
+                         NUM_MODULI == 11U) {
+        general::scaling_colwise_full_device<T, BACKEND, NUM_MODULI, CONJ, false, true>(
+            rows_A, in, A_lo, lda_lo, incA_lo, sft);
+    } else
+#endif
+        if constexpr (BACKEND == Backend::FP8 && common::isComplex<T> &&
+                      general::fp8_complex_column_registers<T, NUM_MODULI> != 0U && UPLO == CUBLAS_FILL_MODE_FULL) {
+        general::scaling_colwise_full_device<T, BACKEND, NUM_MODULI, CONJ, false, true>(
+            rows_A, in, A_lo, lda_lo, incA_lo, sft);
+    } else general::scaling_colwise_device<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ>(
         rows_A, in, A_lo, lda_lo, incA_lo, sft);
 }
+
+GEMMUL8_FP8_KERNEL_EX(scaling_colwise,
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ),
+                      (T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ),
+                      (BACKEND == Backend::FP8 && ((!common::isComplex<T> && NUM_MODULI >= 6U) || general::fp8_complex_column_registers<T, NUM_MODULI> != 0U) && UPLO == CUBLAS_FILL_MODE_FULL),
+                      (common::isComplex<T> ? general::fp8_complex_column_registers<T, NUM_MODULI> : general::fp8_column_registers<T, NUM_MODULI>),
+                      (BACKEND == Backend::FP8 && UPLO == CUBLAS_FILL_MODE_FULL ? general::fp8_refined_registers<T, NUM_MODULI, general::fp8_kernel_kind::fast> : 0U))
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO, cublasDiagType_t DIAG>

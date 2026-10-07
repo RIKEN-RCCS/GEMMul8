@@ -88,17 +88,34 @@ __device__ __forceinline__ int4 mod_hi2mid_device(
     const float4 *__restrict__ C_plus,
     const float4 *__restrict__ C_minus //
 ) {
-    const int4 a = fp8_residue_x4<IDX, true>(C_plus, idx, sizeC4);
-    const int4 b = fp8_residue_x4<IDX, true>(C_minus, idx, sizeC4);
-    return {pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.x, b.x),
-            pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.y, b.y),
-            pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.z, b.z),
-            pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.w, b.w)};
+    constexpr bool direct = complex_3m<Backend::FP8, IDX> && fp8_product_count<IDX, true> == 1U;
+    const auto load       = [&](const float4 *ptr) {
+        if constexpr (direct) {
+            const float4 f = ptr[idx];
+            return int4{int32_t(f.x), int32_t(f.y), int32_t(f.z), int32_t(f.w)};
+        } else {
+            return fp8_residue_x4<IDX, true>(ptr, idx, sizeC4);
+        }
+    };
+    const int4 a = load(C_plus), b = load(C_minus);
+    if constexpr (complex_3m<Backend::FP8, IDX>) {
+        const int4 c    = load(C_minus + fp8_product_count<IDX, true> * sizeC4);
+        const auto pack = [](int32_t a, int32_t b, int32_t c) {
+            const auto v = reconstruct_complex_3m<IDX, FLIP_IMAG, false, direct>(a, b, c);
+            return int32_t(uint32_t(uint16_t(v.x)) | (uint32_t(uint16_t(v.y)) << 16));
+        };
+        return {pack(a.x, b.x, c.x), pack(a.y, b.y, c.y), pack(a.z, b.z, c.z), pack(a.w, b.w, c.w)};
+    } else {
+        return {pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.x, b.x),
+                pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.y, b.y),
+                pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.z, b.z),
+                pack_complex_2m<Backend::FP8, IDX, FLIP_IMAG>(a.w, b.w)};
+    }
 }
 
 // real
 template <Backend BACKEND, unsigned IDX>
-__global__ void mod_hi2mid_ge_kernel(
+__device__ __forceinline__ void mod_hi2mid_ge_body(
     const size_t sizeC4,
     const common::hix4_t<BACKEND> *__restrict__ C_hix4,
     common::midx4_t<BACKEND, false> *__restrict__ C_midx4 //
@@ -113,6 +130,42 @@ __global__ void mod_hi2mid_ge_kernel(
         C_midx4[idx] = {int16_t(r.x), int16_t(r.y), int16_t(r.z), int16_t(r.w)};
     }
 }
+
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 1200 && \
+    ((__CUDACC_VER_MAJOR__ > 12) || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 9))
+
+template <Backend BACKEND, unsigned IDX>
+requires(BACKEND == Backend::FP8 && (IDX == 19305U + 20U || IDX == 11583U + 20U))
+__global__ __maxnreg__(30) void mod_hi2mid_ge_kernel(
+    const size_t sizeC4,
+    const common::hix4_t<BACKEND> *__restrict__ C_hix4,
+    common::midx4_t<BACKEND, false> *__restrict__ C_midx4 //
+) {
+    mod_hi2mid_ge_body<BACKEND, IDX>(sizeC4, C_hix4, C_midx4);
+}
+
+template <Backend BACKEND, unsigned IDX>
+requires(!(BACKEND == Backend::FP8 && (IDX == 19305U + 20U || IDX == 11583U + 20U)))
+__global__ void mod_hi2mid_ge_kernel(
+    const size_t sizeC4,
+    const common::hix4_t<BACKEND> *__restrict__ C_hix4,
+    common::midx4_t<BACKEND, false> *__restrict__ C_midx4 //
+) {
+    mod_hi2mid_ge_body<BACKEND, IDX>(sizeC4, C_hix4, C_midx4);
+}
+
+#else
+
+template <Backend BACKEND, unsigned IDX>
+__global__ void mod_hi2mid_ge_kernel(
+    const size_t sizeC4,
+    const common::hix4_t<BACKEND> *__restrict__ C_hix4,
+    common::midx4_t<BACKEND, false> *__restrict__ C_midx4 //
+) {
+    mod_hi2mid_ge_body<BACKEND, IDX>(sizeC4, C_hix4, C_midx4);
+}
+
+#endif
 
 // real
 template <Backend BACKEND, unsigned IDX, cublasFillMode_t UPLO>
@@ -211,13 +264,20 @@ __global__ void mod_hi2mid_AHA_kernel(
     const common::hi_t<BACKEND> *__restrict__ C_plus,
     common::mid_t<BACKEND, true> *__restrict__ C_mid //
 ) {
+    const auto *cross = C_plus;
+    if constexpr (complex_3m<BACKEND, IDX>) {
+        cross += 2U * fp8_product_count<IDX, true> * sizeC;
+    }
+
     constexpr unsigned tile_size = 32;
     constexpr unsigned tile_rows = 8;
+
     if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
         if (blockIdx.x > blockIdx.y) return;
     } else if constexpr (UPLO == CUBLAS_FILL_MODE_LOWER) {
         if (blockIdx.x < blockIdx.y) return;
     }
+
     __shared__ int32_t opposite[tile_size][tile_size + 1];
     int32_t direct[tile_size / tile_rows];
     const unsigned row_base = blockIdx.x * tile_size;
@@ -231,7 +291,7 @@ __global__ void mod_hi2mid_AHA_kernel(
         const unsigned row    = row_base + tx;
         const unsigned col    = col_base + yy;
         const int32_t value   = (row < n && col < n)
-                                    ? herk_product_residue<BACKEND, IDX>(C_plus, size_t(col) * ldc + row, sizeC)
+                                    ? herk_product_residue<BACKEND, IDX>(cross, size_t(col) * ldc + row, sizeC)
                                     : 0;
         direct[j / tile_rows] = value;
         if (blockIdx.x == blockIdx.y) {
@@ -240,7 +300,7 @@ __global__ void mod_hi2mid_AHA_kernel(
             const unsigned tr = col_base + tx;
             const unsigned tc = row_base + yy;
             opposite[yy][tx]  = (tr < n && tc < n)
-                                    ? herk_product_residue<BACKEND, IDX>(C_plus, size_t(tc) * ldc + tr, sizeC)
+                                    ? herk_product_residue<BACKEND, IDX>(cross, size_t(tc) * ldc + tr, sizeC)
                                     : 0;
         }
     }
@@ -251,13 +311,24 @@ __global__ void mod_hi2mid_AHA_kernel(
         const unsigned yy  = ty + j;
         const unsigned row = row_base + tx;
         const unsigned col = col_base + yy;
+
         if (row >= n || col >= n) continue;
         if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
             if (row > col) continue;
         } else if constexpr (UPLO == CUBLAS_FILL_MODE_LOWER) {
             if (row < col) continue;
         }
-        const int2 value               = reconstruct_complex_2m<BACKEND, IDX, FLIP_IMAG>(direct[j / tile_rows], opposite[tx][yy]);
+
+        const int2 value = [&] {
+            if constexpr (complex_3m<BACKEND, IDX>) {
+                const size_t index = size_t(col) * ldc + row;
+                const int32_t a    = herk_product_residue<BACKEND, IDX>(C_plus, index, sizeC);
+                const int32_t b    = herk_product_residue<BACKEND, IDX>(C_plus + fp8_product_count<IDX, true> * sizeC, index, sizeC);
+                return reconstruct_complex_3m<IDX, FLIP_IMAG, true>(a, b, direct[j / tile_rows], opposite[tx][yy]);
+            } else {
+                return reconstruct_complex_2m<BACKEND, IDX, FLIP_IMAG>(direct[j / tile_rows], opposite[tx][yy]);
+            }
+        }();
         C_mid[size_t(col) * ldc + row] = {static_cast<common::mid_t<BACKEND>>(value.x),
                                           static_cast<common::mid_t<BACKEND>>(value.y)};
     }

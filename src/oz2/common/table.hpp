@@ -57,7 +57,7 @@ template <> inline constexpr int32_t moduli<Backend::INT8, 17U, true> = 73;
 template <> inline constexpr int32_t moduli<Backend::INT8, 18U, true> = 61;
 template <> inline constexpr int32_t moduli<Backend::INT8, 19U, true> = 53;
 
-// FP8 real: moduli
+// FP8 real: moduli (NOT USED)
 template <> inline constexpr int32_t moduli<Backend::FP8, 0U, false>  = 2401; // base-49
 template <> inline constexpr int32_t moduli<Backend::FP8, 1U, false>  = 2209; // base-47
 template <> inline constexpr int32_t moduli<Backend::FP8, 2U, false>  = 2025; // base-45
@@ -79,7 +79,7 @@ template <> inline constexpr int32_t moduli<Backend::FP8, 17U, false> = 863;  //
 template <> inline constexpr int32_t moduli<Backend::FP8, 18U, false> = 859;  // BASE49
 template <> inline constexpr int32_t moduli<Backend::FP8, 19U, false> = 841;  // base-29
 
-// FP8 complex: moduli
+// FP8 complex: moduli (NOT USED)
 template <> inline constexpr int32_t moduli<Backend::FP8, 0U, true>  = 1681; // base-41
 template <> inline constexpr int32_t moduli<Backend::FP8, 1U, true>  = 1369; // base-37
 template <> inline constexpr int32_t moduli<Backend::FP8, 2U, true>  = 1193; // BASE49
@@ -102,7 +102,7 @@ template <> inline constexpr int32_t moduli<Backend::FP8, 18U, true> = 757;  // 
 template <> inline constexpr int32_t moduli<Backend::FP8, 19U, true> = 709;  // BASE32_SUM
 
 //==========
-// FP8 Karatsuba type
+// FP8 Karatsuba type (NOT USED)
 //==========
 enum KaratsubaType : uint8_t {
     NONE,
@@ -288,7 +288,7 @@ inline unsigned num_mat(unsigned NUM_MODULI) {
 template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false> inline constexpr float log2P = 0.0F;
 
 // INT8 real
-template <> inline constexpr float log2P<Backend::INT8, 2U, false>  = 0x1.dfd1ec0000000p+2F;
+template <> inline constexpr float log2P<Backend::INT8, 2U, false>  = 0x1.dfd18e0000000p+2F;
 template <> inline constexpr float log2P<Backend::INT8, 3U, false>  = 0x1.6fa3360000000p+3F;
 template <> inline constexpr float log2P<Backend::INT8, 4U, false>  = 0x1.ef2ea60000000p+3F;
 template <> inline constexpr float log2P<Backend::INT8, 5U, false>  = 0x1.372d940000000p+4F;
@@ -309,7 +309,7 @@ template <> inline constexpr float log2P<Backend::INT8, 19U, false> = 0x1.25df9a
 template <> inline constexpr float log2P<Backend::INT8, 20U, false> = 0x1.34be220000000p+6F;
 
 // INT8 complex
-template <> inline constexpr float log2P<Backend::INT8, 2U, true>  = 0x1.d8de020000000p+2F;
+template <> inline constexpr float log2P<Backend::INT8, 2U, true>  = 0x1.d8dd960000000p+2F;
 template <> inline constexpr float log2P<Backend::INT8, 3U, true>  = 0x1.69dc460000000p+3F;
 template <> inline constexpr float log2P<Backend::INT8, 4U, true>  = 0x1.e677860000000p+3F;
 template <> inline constexpr float log2P<Backend::INT8, 5U, true>  = 0x1.30ab560000000p+4F;
@@ -330,45 +330,45 @@ template <> inline constexpr float log2P<Backend::INT8, 19U, true> = 0x1.0e93120
 template <> inline constexpr float log2P<Backend::INT8, 20U, true> = 0x1.1a07c40000000p+6F;
 
 // FP8 real
-template <> inline constexpr float log2P<Backend::FP8, 2U, false>  = 0x1.a058e80000000p+3F;
-template <> inline constexpr float log2P<Backend::FP8, 3U, false>  = 0x1.2395700000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 4U, false>  = 0x1.7214c80000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 2U, false>  = 0x1.a299e00000000p+3F;
+template <> inline constexpr float log2P<Backend::FP8, 3U, false>  = 0x1.253c400000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 4U, false>  = 0x1.73bb980000000p+4F;
 template <> inline constexpr float log2P<Backend::FP8, 5U, false>  = 0x1.bb6ba60000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 6U, false>  = 0x1.0702f00000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 7U, false>  = 0x1.304b700000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 8U, false>  = 0x1.5970e00000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 9U, false>  = 0x1.7ac8500000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 10U, false> = 0x1.a3ceac0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 11U, false> = 0x1.ccba360000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 12U, false> = 0x1.f59be00000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 13U, false> = 0x1.0f374e0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 14U, false> = 0x1.239e2a0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 15U, false> = 0x1.3801400000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 16U, false> = 0x1.4c5f440000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 17U, false> = 0x1.60b6ea0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 18U, false> = 0x1.750d460000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 19U, false> = 0x1.8955600000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 20U, false> = 0x1.9674ea0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 6U, false>  = 0x1.1048120000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 7U, false>  = 0x1.39952e0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 8U, false>  = 0x1.62ddae0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 9U, false>  = 0x1.7db9120000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 10U, false> = 0x1.a6de820000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 11U, false> = 0x1.cfe4de0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 12U, false> = 0x1.f8d0680000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 13U, false> = 0x1.10d9080000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 14U, false> = 0x1.2542660000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 15U, false> = 0x1.39a57c0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 16U, false> = 0x1.4e03820000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 17U, false> = 0x1.625b260000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 18U, false> = 0x1.76b1820000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 19U, false> = 0x1.8af99e0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 20U, false> = 0x1.99a06a0000000p+6F;
 
 // FP8 complex
 template <> inline constexpr float log2P<Backend::FP8, 2U, true>  = 0x1.72803a0000000p+3F;
-template <> inline constexpr float log2P<Backend::FP8, 3U, true>  = 0x1.0c1ea00000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 4U, true>  = 0x1.5e69800000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 3U, true>  = 0x1.03c58a0000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 4U, true>  = 0x1.5b9e520000000p+4F;
 template <> inline constexpr float log2P<Backend::FP8, 5U, true>  = 0x1.b040940000000p+4F;
 template <> inline constexpr float log2P<Backend::FP8, 6U, true>  = 0x1.0101f40000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 7U, true>  = 0x1.197b200000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 8U, true>  = 0x1.422a6a0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 9U, true>  = 0x1.6aba9e0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 10U, true> = 0x1.933b0c0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 11U, true> = 0x1.bbb0da0000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 12U, true> = 0x1.e416940000000p+5F;
-template <> inline constexpr float log2P<Backend::FP8, 13U, true> = 0x1.063b740000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 14U, true> = 0x1.1a5b3a0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 15U, true> = 0x1.2951380000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 16U, true> = 0x1.3d630a0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 17U, true> = 0x1.5169800000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 18U, true> = 0x1.6567560000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 19U, true> = 0x1.795f5a0000000p+6F;
-template <> inline constexpr float log2P<Backend::FP8, 20U, true> = 0x1.8d54740000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 7U, true>  = 0x1.1a82260000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 8U, true>  = 0x1.4363d00000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 9U, true>  = 0x1.6c368c0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 10U, true> = 0x1.94e5d40000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 11U, true> = 0x1.bd760a0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 12U, true> = 0x1.e5f6760000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 13U, true> = 0x1.0736220000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 14U, true> = 0x1.182eba0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 15U, true> = 0x1.2c5ee40000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 16U, true> = 0x1.407ea80000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 17U, true> = 0x1.5498e00000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 18U, true> = 0x1.68aab20000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 19U, true> = 0x1.7cb1280000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 20U, true> = 0x1.90aefe0000000p+6F;
 
 } // namespace gemmul8::common::table
