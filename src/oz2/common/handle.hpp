@@ -189,6 +189,7 @@ struct Handle_t {
 
     bool modulus_complex      = false;
     bool matprod_k_blocking   = false;
+    bool matprod_fp8_planes   = false;
     int matprod_k_block_first = 0;
     int matprod_k_block_next  = 0;
     unsigned modulus_idx      = 0;
@@ -219,6 +220,7 @@ inline void set_handle(
     h.active_layout_valid  = false;
     h.modulus_complex      = false;
     h.matprod_k_blocking   = false;
+    h.matprod_fp8_planes   = false;
     h.workspaceSizeInBytes = workspaceSizeInBytes;
 
     if (h.kind == HandleKind::cuBLAS) {

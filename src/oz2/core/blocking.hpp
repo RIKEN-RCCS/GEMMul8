@@ -230,6 +230,19 @@ template <typename T, typename TBeta = T,
 inline void scale_block(cudaStream_t stream, size_t m, size_t n, const TBeta *beta, T *C, size_t ldc) {
     if (m == 0 || n == 0) return;
     constexpr dim3 threads(32, 8);
+
+    if constexpr (UPLO == CUBLAS_FILL_MODE_FULL && !HERMITIAN) {
+        constexpr size_t max_columns = 65535U * threads.y;
+        if (n > max_columns) {
+            for (size_t first = 0; first < n;) {
+                const size_t count = std::min(max_columns, n - first);
+                scale_block<T, TBeta, UPLO, HERMITIAN>(stream, m, count, beta, C + first * ldc, ldc);
+                first += count;
+            }
+            return;
+        }
+    }
+
     const dim3 grid((m + threads.x - 1) / threads.x, (n + threads.y - 1) / threads.y);
 
     if (!beta) {

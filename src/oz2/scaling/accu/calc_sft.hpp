@@ -618,7 +618,7 @@ inline void calc_sft_after_rowwise_launch(
 ) {
     constexpr dim3 threads_findmax(threads_x_findmax_tile, threads_y_findmax_tile);
 
-    if (n < rowwise_sft_split_threshold) {
+    if (n < rowwise_sft_split_threshold || n > 65535U * rowwise_sft_col_tile) {
         const unsigned grid_findmax = (m + common::TILE_DIM - 1U) / common::TILE_DIM;
         calc_sft_after_rowwise<T, BACKEND, NUM_MODULI, UPLO>
             <<<grid_findmax, threads_findmax, 0, stream>>>(
@@ -708,7 +708,7 @@ inline void calc_sft_after_rowwise_with_delta_launch(
 ) {
     constexpr dim3 threads_findmax(threads_x_findmax_tile, threads_y_findmax_tile);
 
-    if (n < rowwise_sft_split_threshold) {
+    if (n < rowwise_sft_split_threshold || n > 65535U * rowwise_sft_col_tile) {
         const unsigned grid_findmax = (m + common::TILE_DIM - 1U) / common::TILE_DIM;
         calc_sft_after_rowwise_with_delta<T, BACKEND, NUM_MODULI, UPLO>
             <<<grid_findmax, threads_findmax, 0, stream>>>(

@@ -29,8 +29,12 @@ inline void configure_matprod_k_blocking(
     const unsigned idx,
     const size_t k //
 ) {
-    handle.modulus_idx     = BACKEND == Backend::FP8 ? common::fp8_plan::index(handle.fp8_num_moduli, idx, COMPLEX) : idx;
-    handle.modulus_complex = COMPLEX;
+    handle.modulus_idx =
+        BACKEND == Backend::FP8
+            ? common::fp8_plan::index(handle.fp8_num_moduli, idx, COMPLEX)
+            : idx;
+    handle.modulus_complex    = COMPLEX;
+    handle.matprod_fp8_planes = false;
     if constexpr (BACKEND == Backend::INT8) {
         constexpr int KB             = int(K_BLOCK_INT8);
         const bool is_mod256         = (!COMPLEX && common::table::moduli_int8[idx] == 256);
@@ -45,6 +49,16 @@ inline void configure_matprod_k_blocking(
         handle.matprod_k_block_first = KB0;
         handle.matprod_k_block_next  = KB;
     }
+}
+
+inline void configure_fp8_plane(common::Handle_t &handle, int32_t p,
+                                unsigned plane, size_t k) {
+    const auto scheme            = common::fp8_plan::get(p);
+    handle.modulus_idx           = common::fp8_plan::modulus_index(unsigned(scheme.q[plane]));
+    handle.matprod_fp8_planes    = false;
+    handle.matprod_k_block_first = int(common::fp8_plan::plane_k_block(p, plane, true));
+    handle.matprod_k_block_next  = int(common::fp8_plan::plane_k_block(p, plane, false));
+    handle.matprod_k_blocking    = k > size_t(handle.matprod_k_block_first);
 }
 
 template <Backend BACKEND, bool COMPLEX = false>
@@ -82,6 +96,8 @@ inline void upload_pointer_arrays(
     const unsigned count //
 ) {
     // Workspace places Aarray, Barray, Carray consecutively
+    handle.Barray = handle.Aarray + count;
+    handle.Carray = handle.Barray + count;
     cudaMemcpyAsync(handle.Aarray, pointers,
                     3U * count * sizeof(void *),
                     cudaMemcpyHostToDevice, stream);
@@ -409,7 +425,8 @@ inline void error_free_matmult_f8_real(
     common::matptr_t<common::hi_t<Backend::FP8>, false> &C_hi //
 ) {
     constexpr float one = 1.0f, zero = 0.0f;
-    const unsigned count = common::fp8_plan::planes(handle.fp8_num_moduli, idx, bcnt, false);
+    const unsigned count      = common::fp8_plan::planes(handle.fp8_num_moduli, idx, bcnt, false);
+    handle.matprod_fp8_planes = true;
     common::call_gemm_tn_strided_batched<Backend::FP8>(
         stream, handle, ldc_hi, n, lda_lo, count, &one,
         A_lo.ptr0, lda_lo, int64_t(sizeA), B_lo.ptr0, ldb_lo, int64_t(sizeB),
@@ -442,6 +459,7 @@ inline void error_free_matmult_f8_real_strided(
     constexpr float one = 1.0f, zero = 0.0f;
     constexpr unsigned parts = 1U;
     const unsigned products  = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, idx, false)).products;
+    const bool k_blocking    = handle.matprod_k_blocking;
     const int64_t strideA    = products * int64_t(sizeA);
     const int64_t strideB    = products * int64_t(sizeB);
     const int64_t strideC    = products * parts * int64_t(sizeC);
@@ -450,6 +468,12 @@ inline void error_free_matmult_f8_real_strided(
         LowT *b = B_lo.ptr0;
 
         for (unsigned j = 0; j < products; ++j) {
+            if (k_blocking) {
+                configure_fp8_plane(
+                    handle,
+                    common::fp8_plan::modulus(handle.fp8_num_moduli, idx, false),
+                    j, lda_lo);
+            }
             matmul_block_1_strided_batched<KIND, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
                 stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt, &one,
                 a + j * sizeA, strideA, b + j * sizeB, strideB, &zero,
@@ -480,8 +504,9 @@ inline void error_free_matmult_f8_complex(
 ) {
     using LowT          = common::low_t<Backend::FP8>;
     constexpr float one = 1.0f, zero = 0.0f;
-    const bool packed    = common::fp8_plan::mixed_complex(handle.fp8_num_moduli);
-    const unsigned count = common::fp8_plan::planes(handle.fp8_num_moduli, idx, bcnt, true);
+    const bool packed         = common::fp8_plan::mixed_complex(handle.fp8_num_moduli);
+    const unsigned count      = common::fp8_plan::planes(handle.fp8_num_moduli, idx, bcnt, true);
+    handle.matprod_fp8_planes = true;
     if (packed) {
         common::call_gemm_tn_strided_batched<Backend::FP8>(
             stream, handle, ldc_hi, n, lda_lo, count, &one,
@@ -550,6 +575,7 @@ inline void error_free_matmult_f8_complex_strided(
     const unsigned inputs   = common::fp8_plan::complex_parts(scheme.p);
     const unsigned parts    = common::fp8_plan::complex_parts(scheme.p, KIND == common::MatMulKind::AHxA);
     const unsigned products = scheme.products;
+    const bool k_blocking   = handle.matprod_k_blocking;
     const int64_t strideA   = (packed ? inputs : 1U) * products * int64_t(sizeA);
     const int64_t strideB   = (packed ? inputs : 1U) * products * int64_t(sizeB);
     const int64_t strideC   = products * parts * int64_t(sizeC);
@@ -566,6 +592,9 @@ inline void error_free_matmult_f8_complex_strided(
             }
         }
         for (unsigned j = 0; j < products; ++j) {
+            if (k_blocking) {
+                configure_fp8_plane(handle, scheme.p, j, lda_lo);
+            }
             matmul_block_1_strided_batched<KIND, Backend::FP8, UPLO_A, UPLO_B, UPLO_C>(
                 stream, handle, ldc_hi, n, lda_lo, ldb_lo, bcnt, &one,
                 a + j * sizeA, strideA, b + j * sizeB, strideB, &zero,

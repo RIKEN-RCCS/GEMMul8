@@ -1,5 +1,6 @@
 #pragma once
 #include "common.hpp"
+#include "fp8_plan.hpp"
 #include "../mod/mod_reduce_matprod_declaration.hpp"
 
 namespace gemmul8::common {
@@ -191,6 +192,14 @@ inline void call_gemm_tn_strided_batched(
 
     const int KB0 = h.matprod_k_block_first;
     const int KB  = h.matprod_k_block_next;
+    fp8_plan::k_accumulation accumulation;
+    if constexpr (BACKEND == Backend::FP8) {
+        if (h.matprod_fp8_planes) {
+            accumulation = fp8_plan::k_accumulation(
+                int32_t(h.modulus_idx - 20U),
+                unsigned(std::min(KB0, k)));
+        }
+    }
 
     int k0 = 0;
     {
@@ -209,9 +218,22 @@ inline void call_gemm_tn_strided_batched(
     }
 
     while (k0 < k) {
-        mod::mod_reduce_matprod_strided<BACKEND>(stream, C0, m, n, ldc, strideC, batchCount, h.modulus_idx, h.modulus_complex);
-
         const int kk = std::min(KB, k - k0);
+        if constexpr (BACKEND == Backend::FP8) {
+            if (h.matprod_fp8_planes) {
+                mod::mod_reduce_matprod_fp8_batch<BACKEND>(
+                    stream, C0, m, n, ldc, strideC, batchCount,
+                    h.modulus_idx - 20U, accumulation.advance(unsigned(kk)));
+            } else {
+                mod::mod_reduce_matprod_strided<BACKEND>(
+                    stream, C0, m, n, ldc, strideC, batchCount,
+                    h.modulus_idx, h.modulus_complex);
+            }
+        } else {
+            mod::mod_reduce_matprod_strided<BACKEND>(
+                stream, C0, m, n, ldc, strideC, batchCount,
+                h.modulus_idx, h.modulus_complex);
+        }
 
         call_gemm_tn_strided_batched_raw<BACKEND>(
             stream, h,
@@ -290,6 +312,14 @@ inline void call_gemm_tn_pointer_batched(
 
     const int KB0 = h.matprod_k_block_first;
     const int KB  = h.matprod_k_block_next;
+    fp8_plan::k_accumulation accumulation;
+    if constexpr (BACKEND == Backend::FP8) {
+        if (h.matprod_fp8_planes) {
+            accumulation = fp8_plan::k_accumulation(
+                int32_t(h.modulus_idx - 20U),
+                unsigned(std::min(KB0, k)));
+        }
+    }
 
     int k0 = 0;
     int kk = std::min(KB0, k);
@@ -307,11 +337,23 @@ inline void call_gemm_tn_pointer_batched(
     }
 
     while (k0 < k) {
-        mod::mod_reduce_matprod_pointer_and_advance<BACKEND>(
-            stream, Aarray, Barray, Carray, m, n, ldc,
-            batchCount, kk, h.modulus_idx, h.modulus_complex);
-
-        kk = std::min(KB, k - k0);
+        const int k_advance = kk;
+        kk                  = std::min(KB, k - k0);
+        if constexpr (BACKEND == Backend::FP8) {
+            if (h.matprod_fp8_planes) {
+                mod::mod_reduce_matprod_fp8_pointer_batch<BACKEND>(
+                    stream, Aarray, Barray, Carray, m, n, ldc, batchCount,
+                    k_advance, h.modulus_idx - 20U, accumulation.advance(unsigned(kk)));
+            } else {
+                mod::mod_reduce_matprod_pointer_and_advance<BACKEND>(
+                    stream, Aarray, Barray, Carray, m, n, ldc,
+                    batchCount, k_advance, h.modulus_idx, h.modulus_complex);
+            }
+        } else {
+            mod::mod_reduce_matprod_pointer_and_advance<BACKEND>(
+                stream, Aarray, Barray, Carray, m, n, ldc,
+                batchCount, k_advance, h.modulus_idx, h.modulus_complex);
+        }
 
         call_gemm_tn_pointer_batched_raw<BACKEND>(
             stream, h,

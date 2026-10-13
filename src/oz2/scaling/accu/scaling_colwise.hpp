@@ -59,6 +59,20 @@ inline void scaling_colwise_launch(
 
     if constexpr (UPLO == CUBLAS_FILL_MODE_FULL) {
 
+        constexpr unsigned max_columns = 65535U * general::threads_y_colwise_full_tiled;
+        if (cols_A > max_columns) {
+            for (unsigned first = 0; first < cols_A;) {
+                const unsigned count = std::min(max_columns, cols_A - first);
+                auto part_lo         = A_lo;
+                part_lo.shift(first * lda_lo4 * 4U);
+                scaling_colwise_launch<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ>(
+                    stream, rows_A, count, A + first * lda, lda,
+                    part_lo, lda_lo4, incA_lo4, sftA + first);
+                first += count;
+            }
+            return;
+        }
+
         bool vector_load_aligned;
         if constexpr (common::isComplex<T>) {
             vector_load_aligned = false;

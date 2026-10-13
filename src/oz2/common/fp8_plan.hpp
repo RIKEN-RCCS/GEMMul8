@@ -816,10 +816,73 @@ constexpr unsigned planes(unsigned n, unsigned first, unsigned count, bool compl
 template <unsigned N, bool Complex>
 inline constexpr unsigned plane_count = Complex ? (planes(N, 0U, N, true) + 1U) / 2U : planes(N, 0U, N, false);
 
-constexpr unsigned k_block(int32_t p, bool first, unsigned alignment = 256U) {
+constexpr unsigned plane_max_abs(info s, unsigned j) {
+    if (s.w == 0 || s.p == 19305 || s.p == 11583) {
+        const int32_t q = s.w < 0 && j == 0 ? -s.w : s.q[j];
+        return unsigned(q > 33 ? q - 17 : q / 2);
+    }
+    switch (s.p) {
+    case 1279: return j < 2 ? 30U : 32U;
+    case 1223:
+    case 1201: return j == 1 ? 30U : 32U;
+    case 1181: return j < 2 ? 28U : 30U;
+    case 1177: return j == 2 ? 28U : 32U;
+    case 1151:
+    case 1117: return j == 1 ? 28U : 26U;
+    case 1109: return j < 2 ? 26U : 32U;
+    case 1049: return j < 2 ? 26U : 28U;
+    default: return s.max_abs;
+    }
+}
+
+constexpr unsigned plane_max_abs(int32_t p, unsigned j) { return plane_max_abs(get(p), j); }
+
+constexpr unsigned plane_k_block(int32_t p, unsigned j, bool first, unsigned alignment = 256U) {
     const auto s          = get(p);
-    const unsigned budget = (1U << 24) - (first ? 0U : unsigned(p / 2));
-    return (budget / (s.max_abs * s.max_abs) / alignment) * alignment;
+    const unsigned m      = plane_max_abs(s, j);
+    const unsigned budget = (1U << 24) - (first ? 0U : unsigned(s.q[j] / 2) + 1U);
+    return (budget / (m * m) / alignment) * alignment;
+}
+
+struct k_accumulation {
+    uint64_t used[3]{};
+    unsigned product_bound[3]{}, remainder_bound[3]{};
+    unsigned products = 0;
+
+    constexpr k_accumulation() = default;
+    constexpr k_accumulation(int32_t p, unsigned first_k) {
+        const auto s = get(p);
+        products     = s.products;
+        for (unsigned j = 0; j < products; ++j) {
+            const unsigned m   = plane_max_abs(s, j);
+            product_bound[j]   = m * m;
+            remainder_bound[j] = unsigned(s.q[j] / 2) + 1U;
+            used[j]            = uint64_t(first_k) * product_bound[j];
+        }
+    }
+
+    constexpr unsigned advance(unsigned k) {
+        unsigned mask = 0;
+        for (unsigned j = 0; j < products; ++j) {
+            const uint64_t term = uint64_t(k) * product_bound[j];
+            if (used[j] + term > (1U << 24)) {
+                mask |= 1U << j;
+                used[j] = remainder_bound[j];
+            }
+            used[j] += term;
+        }
+        return mask;
+    }
+};
+
+constexpr unsigned k_block(int32_t p, bool first, unsigned alignment = 256U) {
+    const auto s    = get(p);
+    unsigned result = plane_k_block(p, 0U, first, alignment);
+    for (unsigned j = 1; j < s.products; ++j) {
+        const unsigned limit = plane_k_block(p, j, first, alignment);
+        if (limit < result) result = limit;
+    }
+    return result;
 }
 
 } // namespace gemmul8::common::fp8_plan

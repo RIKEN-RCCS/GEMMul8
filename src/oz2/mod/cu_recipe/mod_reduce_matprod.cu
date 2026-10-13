@@ -11,6 +11,32 @@ inline constexpr Backend BE = Backend::GEMMUL8_INST_BACKEND;
 
 } // namespace
 
+template void mod_reduce_matprod_fp8_batch<BE>(
+    cudaStream_t,
+    float *,
+    int,
+    int,
+    size_t,
+    int64_t,
+    int,
+    unsigned,
+    unsigned //
+);
+
+template void mod_reduce_matprod_fp8_pointer_batch<BE>(
+    cudaStream_t,
+    void **,
+    void **,
+    void **,
+    int,
+    int,
+    size_t,
+    int,
+    int,
+    unsigned,
+    unsigned //
+);
+
 template void mod_reduce_matprod<BE>(
     const cudaStream_t,
     common::hi_t<BE> *,

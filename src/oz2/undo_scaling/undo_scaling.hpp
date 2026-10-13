@@ -298,6 +298,28 @@ void undo_scaling_impl(
     const TAlpha *const alpha, const TBeta *const beta,
     const crt_tail<BACKEND> tail //
 ) {
+    if constexpr (UPLO == CUBLAS_FILL_MODE_FULL && !isTRTRMM && !HERMITIAN) {
+        constexpr unsigned max_columns = 65535U * threads_y;
+        if (n > max_columns) {
+            using Mid    = common::mid_t<BACKEND, common::isComplex<T>>;
+            using Group  = std::conditional_t<common::isComplex<T>, uint2, uint32_t>;
+            using Stored = std::conditional_t<GROUPED, Group, Mid>;
+            for (unsigned first = 0; first < n;) {
+                const unsigned count = std::min(max_columns, n - first);
+                const size_t offset  = first * ldc_mid;
+                auto *mid            = reinterpret_cast<Mid *>(reinterpret_cast<Stored *>(C_mid) + offset);
+                auto part_tail       = tail;
+                if (part_tail.ptr0) part_tail.ptr0 += offset;
+                if (part_tail.ptr1) part_tail.ptr1 += offset;
+                undo_scaling_impl<T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, isTRTRMM, HERMITIAN, GROUPED>(
+                    stream, m, count, mid, ldc_mid, incC_mid, C + first * ldc, ldc,
+                    sftA, sftB + first, alpha, beta, part_tail);
+                first += count;
+            }
+            return;
+        }
+    }
+
     constexpr bool NONGROUPED_HERM  = HERMITIAN && !GROUPED;
     constexpr unsigned tile_columns = NONGROUPED_HERM ? 32U : threads_y;
     constexpr dim3 threads(threads_x, NONGROUPED_HERM ? 8U : threads_y);
