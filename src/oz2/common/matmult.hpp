@@ -134,6 +134,24 @@ inline void call_gemm_tn_strided_batched_raw(
     constexpr auto CUDA_R_HIGH = (BACKEND == Backend::INT8) ? CUDA_R_32I : CUDA_R_32F;
     constexpr auto COMP_TYPE   = (BACKEND == Backend::INT8) ? CUBLAS_COMPUTE_32I : CUBLAS_COMPUTE_32F;
 
+    // ROCm's strided-batched GEMM truncates batch strides to 32 bits (seen with ROCm 7.2.3, rocBLAS and hipBLASLt
+    // back ends alike): once a stride reaches 2^32 elements, every batch after the first is written to the wrong
+    // place and the call still returns success. Issue such batches one at a time with host-side 64-bit offsets.
+    if constexpr (isHIP) {
+        constexpr int64_t stride_limit = int64_t(1) << 32;
+        if (batchCount > 1 && (strideA >= stride_limit || strideB >= stride_limit || strideC >= stride_limit)) {
+            const auto *a = static_cast<const low_t<BACKEND> *>(A);
+            const auto *b = static_cast<const low_t<BACKEND> *>(B);
+            auto *c       = static_cast<hi_t<BACKEND> *>(C);
+            for (int i = 0; i < batchCount; ++i) {
+                call_gemm_tn_raw<BACKEND>(stream, h, m, n, k, alpha,
+                                          a + int64_t(i) * strideA, lda, b + int64_t(i) * strideB, ldb,
+                                          beta, c + int64_t(i) * strideC, ldc);
+            }
+            return;
+        }
+    }
+
     if (h.kind == HandleKind::cuBLAS) {
         cublasGemmStridedBatchedEx(h.cublas, CUBLAS_OP_T, CUBLAS_OP_N, m, n, k,
                                    alpha, A, CUDA_R_LOW, lda, strideA, B, CUDA_R_LOW, ldb, strideB,
