@@ -24,6 +24,7 @@ $(eval $(call ADD_INST_OBJ,\
     -DGEMMUL8_INST_TYPE_BETA=$(call type_cpp,$(call trip_B,$(1))) \
     -DGEMMUL8_INST_BACKEND=$(call backend_cpp,$(2)) \
     -DGEMMUL8_INST_FILLMODE=$(call uplo_cpp,$(3)) \
+    -DGEMMUL8_INST_HERK=$(if $(and $(filter f8,$(2)),$(filter c_s_s z_d_d,$(1)),$(filter upper lower,$(3))),1,0) \
     -DGEMMUL8_INST_HERMITIAN=$(if $(and $(filter c_c_s c_s_s z_z_d z_d_d,$(1)),$(filter upper lower,$(3))),1,0)))
 endef
 

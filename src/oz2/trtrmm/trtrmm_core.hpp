@@ -1,6 +1,7 @@
 #pragma once
 #include "../common/common.hpp"
 #include "../core/block_size.hpp"
+#include "../core/fp8_trtrmm_block_size.hpp"
 #include "../core/blocking.hpp"
 #include "../core/oz2_core.hpp"
 #include "../gemm/worksize.hpp"
@@ -89,6 +90,18 @@ std::vector<double> run(
 
     if (sB == 0) {
         sB = core::find_block_size_trtrmm(n, fits);
+    }
+
+    if constexpr (BACKEND == Backend::FP8) {
+        if (sB > core::fp8_k_safe_v<NUM_MODULI, common::isComplex<TA>>) {
+            const size_t inner_trtrmm = common::block_size<Func::trtrmm>(handle.arch, effA, effB);
+            const size_t inner_trmm   = common::block_size<Func::trmm>(handle.arch, effA, effB);
+
+            sB = core::select_fp8_trtrmm_block<TA, TB, TC, NUM_MODULI>(
+                n, sB, effA == CUBLAS_FILL_MODE_UPPER, effB == CUBLAS_FILL_MODE_UPPER,
+                DA == CUBLAS_DIAG_UNIT, DB == CUBLAS_DIAG_UNIT,
+                inner_trtrmm, inner_trmm, fastmode, fits, fits_no_gemm);
+        }
     }
 
     if (sB == 0) {

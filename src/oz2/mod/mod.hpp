@@ -84,38 +84,38 @@ __device__ __forceinline__ common::fp64_mant_exp2 scaled_mant_exp(cuDoubleComple
         out += common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;                       \
     }
 
-#define GEMMUL8_FP8_RUN_CPLX_SCALAR_STEP(I)                                                             \
-    if constexpr (NUM_MODULI > (I)) {                                                                   \
-        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true>; \
-        if constexpr (common::fp8_plan::mixed_complex_v<NUM_MODULI>) {                                  \
-            constexpr auto s = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>;                     \
-            mod_launch<modulus_id, V>(out0, out0 + s.products * inc, inc, v);                           \
-            out0 += s.products * common::fp8_plan::complex_parts_v<s.p> * inc;                          \
-        } else {                                                                                        \
-            mod_launch<modulus_id, V>(out0, out1, inc, v);                                              \
-        }                                                                                               \
-        const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;         \
-        if constexpr (!common::fp8_plan::mixed_complex_v<NUM_MODULI>) out0 += step;                     \
-        out1 += step;                                                                                   \
+#define GEMMUL8_FP8_RUN_CPLX_SCALAR_STEP(I)                                                                   \
+    if constexpr (NUM_MODULI > (I)) {                                                                         \
+        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true, HERK>; \
+        if constexpr (common::fp8_plan::mixed_complex_v<NUM_MODULI, HERK>) {                                  \
+            constexpr auto s = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>;                           \
+            mod_launch<modulus_id, V, HERK>(out0, out0 + s.products * inc, inc, v);                           \
+            out0 += s.products * (HERK ? 2U : common::fp8_plan::complex_parts_v<s.p>)*inc;                    \
+        } else {                                                                                              \
+            mod_launch<modulus_id, V, HERK>(out0, out1, inc, v);                                              \
+        }                                                                                                     \
+        const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;               \
+        if constexpr (!common::fp8_plan::mixed_complex_v<NUM_MODULI, HERK>) out0 += step;                     \
+        out1 += step;                                                                                         \
     }
 
-#define GEMMUL8_FP8_RUN_CPLX_VEC4_STEP(I)                                                               \
-    if constexpr (NUM_MODULI > (I)) {                                                                   \
-        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true>; \
-        if constexpr (common::fp8_plan::mixed_complex_v<NUM_MODULI>) {                                  \
-            constexpr auto s = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>;                     \
-            mod_launch<modulus_id, V>(out0, out0 + s.products * inc, inc, v0, v1, v2, v3);              \
-            out0 += s.products * common::fp8_plan::complex_parts_v<s.p> * inc;                          \
-        } else {                                                                                        \
-            mod_launch<modulus_id, V>(out0, out1, inc, v0, v1, v2, v3);                                 \
-        }                                                                                               \
-        const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;         \
-        if constexpr (!common::fp8_plan::mixed_complex_v<NUM_MODULI>) out0 += step;                     \
-        out1 += step;                                                                                   \
+#define GEMMUL8_FP8_RUN_CPLX_VEC4_STEP(I)                                                                     \
+    if constexpr (NUM_MODULI > (I)) {                                                                         \
+        constexpr unsigned modulus_id = common::table::active_index<Backend::FP8, NUM_MODULI, I, true, HERK>; \
+        if constexpr (common::fp8_plan::mixed_complex_v<NUM_MODULI, HERK>) {                                  \
+            constexpr auto s = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>;                           \
+            mod_launch<modulus_id, V, HERK>(out0, out0 + s.products * inc, inc, v0, v1, v2, v3);              \
+            out0 += s.products * (HERK ? 2U : common::fp8_plan::complex_parts_v<s.p>)*inc;                    \
+        } else {                                                                                              \
+            mod_launch<modulus_id, V, HERK>(out0, out1, inc, v0, v1, v2, v3);                                 \
+        }                                                                                                     \
+        const size_t step = common::fp8_plan::scheme<int32_t(modulus_id - 20U)>.products * inc;               \
+        if constexpr (!common::fp8_plan::mixed_complex_v<NUM_MODULI, HERK>) out0 += step;                     \
+        out1 += step;                                                                                         \
     }
 
 // interface for general NUM_MODULI
-template <unsigned NUM_MODULI, typename V> struct ModUnroll {
+template <unsigned NUM_MODULI, typename V, bool HERK = false> struct ModUnroll {
 
     //=====
     // INT8
@@ -211,7 +211,7 @@ template <unsigned NUM_MODULI, typename V> struct ModUnroll {
 #undef GEMMUL8_FP8_RUN_CPLX_VEC4_STEP
 
 // interface for NUM_MODULI > common::threshold::M & V = float
-template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, float> {
+template <unsigned NUM_MODULI, bool HERK> struct ModUnroll<NUM_MODULI, float, HERK> {
 
     //=====
     // INT8
@@ -222,7 +222,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, float> {
         float v //
     ) {
         common::fp32_mant_exp d = common::make_fp32_mant_exp(v);
-        ModUnroll<NUM_MODULI, common::fp32_mant_exp>::run(out, inc, d);
+        ModUnroll<NUM_MODULI, common::fp32_mant_exp, HERK>::run(out, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -234,7 +234,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, float> {
         common::fp32_mant_exp d1 = common::make_fp32_mant_exp(v1);
         common::fp32_mant_exp d2 = common::make_fp32_mant_exp(v2);
         common::fp32_mant_exp d3 = common::make_fp32_mant_exp(v3);
-        ModUnroll<NUM_MODULI, common::fp32_mant_exp>::run(out, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, common::fp32_mant_exp, HERK>::run(out, inc, d0, d1, d2, d3);
     }
 
     //=====
@@ -250,7 +250,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, float> {
         float v //
     ) {
         FP8Mant d = common::make_fp32_mant_exp_as<FP8Mant>(v);
-        ModUnroll<NUM_MODULI, FP8Mant>::run(out, inc, d);
+        ModUnroll<NUM_MODULI, FP8Mant, HERK>::run(out, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -262,12 +262,12 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, float> {
         FP8Mant d1 = common::make_fp32_mant_exp_as<FP8Mant>(v1);
         FP8Mant d2 = common::make_fp32_mant_exp_as<FP8Mant>(v2);
         FP8Mant d3 = common::make_fp32_mant_exp_as<FP8Mant>(v3);
-        ModUnroll<NUM_MODULI, FP8Mant>::run(out, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, FP8Mant, HERK>::run(out, inc, d0, d1, d2, d3);
     }
 };
 
 // interface for NUM_MODULI > common::threshold::M & V = double
-template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, double> {
+template <unsigned NUM_MODULI, bool HERK> struct ModUnroll<NUM_MODULI, double, HERK> {
 
     //=====
     // INT8
@@ -280,7 +280,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, double> {
         using VT = common::fp64_mant_exp;
 
         VT d = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v);
-        ModUnroll<NUM_MODULI, VT>::run(out, inc, d);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -294,7 +294,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, double> {
         VT d1 = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v1);
         VT d2 = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v2);
         VT d3 = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v3);
-        ModUnroll<NUM_MODULI, VT>::run(out, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out, inc, d0, d1, d2, d3);
     }
 
     //=====
@@ -308,7 +308,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, double> {
         using VT = common::fp64_mant_exp;
 
         VT d = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v);
-        ModUnroll<NUM_MODULI, VT>::run(out, inc, d);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -322,12 +322,12 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, double> {
         VT d1 = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v1);
         VT d2 = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v2);
         VT d3 = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v3);
-        ModUnroll<NUM_MODULI, VT>::run(out, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out, inc, d0, d1, d2, d3);
     }
 };
 
 // interface for NUM_MODULI > common::threshold::M & V = cuFloatComplex
-template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuFloatComplex> {
+template <unsigned NUM_MODULI, bool HERK> struct ModUnroll<NUM_MODULI, cuFloatComplex, HERK> {
 
     //=====
     // INT8
@@ -339,7 +339,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuFloatComplex> {
         cuFloatComplex v //
     ) {
         common::fp32_mant_exp2 d = common::make_fp32_mant_exp2(v);
-        ModUnroll<NUM_MODULI, common::fp32_mant_exp2>::run(out0, out1, inc, d);
+        ModUnroll<NUM_MODULI, common::fp32_mant_exp2, HERK>::run(out0, out1, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -355,14 +355,14 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuFloatComplex> {
         common::fp32_mant_exp2 d1 = common::make_fp32_mant_exp2(v1);
         common::fp32_mant_exp2 d2 = common::make_fp32_mant_exp2(v2);
         common::fp32_mant_exp2 d3 = common::make_fp32_mant_exp2(v3);
-        ModUnroll<NUM_MODULI, common::fp32_mant_exp2>::run(out0, out1, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, common::fp32_mant_exp2, HERK>::run(out0, out1, inc, d0, d1, d2, d3);
     }
 
     //=====
     // FP8
     //=====
     using FP8Mant = std::conditional_t<
-        (common::table::log2P<Backend::FP8, NUM_MODULI, true> >= 94.0f),
+        (common::table::log2P<Backend::FP8, NUM_MODULI, true, HERK> >= 94.0f),
         common::fp64_mant_exp2, common::fp32_mant_exp2>;
 
     __device__ __forceinline__ static void run(
@@ -372,7 +372,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuFloatComplex> {
         cuFloatComplex v //
     ) {
         FP8Mant d = common::make_fp32_mant_exp2_as<FP8Mant>(v);
-        ModUnroll<NUM_MODULI, FP8Mant>::run(out0, out1, inc, d);
+        ModUnroll<NUM_MODULI, FP8Mant, HERK>::run(out0, out1, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -388,12 +388,12 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuFloatComplex> {
         FP8Mant d1 = common::make_fp32_mant_exp2_as<FP8Mant>(v1);
         FP8Mant d2 = common::make_fp32_mant_exp2_as<FP8Mant>(v2);
         FP8Mant d3 = common::make_fp32_mant_exp2_as<FP8Mant>(v3);
-        ModUnroll<NUM_MODULI, FP8Mant>::run(out0, out1, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, FP8Mant, HERK>::run(out0, out1, inc, d0, d1, d2, d3);
     }
 };
 
 // interface for NUM_MODULI > common::threshold::M & V = cuDoubleComplex
-template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuDoubleComplex> {
+template <unsigned NUM_MODULI, bool HERK> struct ModUnroll<NUM_MODULI, cuDoubleComplex, HERK> {
 
     //=====
     // INT8
@@ -407,7 +407,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuDoubleComplex> {
         using VT = common::fp64_mant_exp2;
 
         VT d = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v);
-        ModUnroll<NUM_MODULI, VT>::run(out0, out1, inc, d);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out0, out1, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -425,7 +425,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuDoubleComplex> {
         VT d1 = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v1);
         VT d2 = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v2);
         VT d3 = scaled_mant_exp<Backend::INT8, NUM_MODULI>(v3);
-        ModUnroll<NUM_MODULI, VT>::run(out0, out1, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out0, out1, inc, d0, d1, d2, d3);
     }
 
     //=====
@@ -439,7 +439,7 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuDoubleComplex> {
         using VT = common::fp64_mant_exp2;
 
         VT d = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v);
-        ModUnroll<NUM_MODULI, VT>::run(out0, out1, inc, d);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out0, out1, inc, d);
     }
 
     __device__ __forceinline__ static void run(
@@ -457,11 +457,11 @@ template <unsigned NUM_MODULI> struct ModUnroll<NUM_MODULI, cuDoubleComplex> {
         VT d1 = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v1);
         VT d2 = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v2);
         VT d3 = scaled_mant_exp<Backend::FP8, NUM_MODULI>(v3);
-        ModUnroll<NUM_MODULI, VT>::run(out0, out1, inc, d0, d1, d2, d3);
+        ModUnroll<NUM_MODULI, VT, HERK>::run(out0, out1, inc, d0, d1, d2, d3);
     }
 };
 
-template <Backend BACKEND, unsigned NUM_MODULI, typename Out>
+template <Backend BACKEND, unsigned NUM_MODULI, typename Out, bool HERK = false>
 struct ModUnrollFillZero {
 
     __device__ __forceinline__ static void run(
@@ -482,7 +482,7 @@ struct ModUnrollFillZero {
         Out *__restrict__ out1,
         size_t inc //
     ) {
-        constexpr unsigned num_mat = common::table::num_mat_v<BACKEND, NUM_MODULI, true>;
+        constexpr unsigned num_mat = common::table::num_mat_v<BACKEND, NUM_MODULI, true, HERK>;
         const Out zero             = common::Tconst<Out>::zero();
 
 #pragma unroll

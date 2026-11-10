@@ -137,6 +137,12 @@ ifeq ($(strip $(HOST_CXX)),)
 HOST_CXX := c++
 endif
 
+LINK_FLAGS :=
+
+ifeq ($(shell uname -m),aarch64)
+LINK_FLAGS += -Xlinker --stub-group-size=33554432
+endif
+
 #===============
 # compile
 #===============
@@ -146,7 +152,7 @@ endif
 all: $(TARGET)
 
 $(TARGET): $(CU_OBJ) ../lib/libgemmul8.a
-	$(COMPILER) $(FLAGS) $(ARCH) $(CU_OBJ) -o $@ $(LIBS)
+	$(COMPILER) $(FLAGS) $(ARCH) $(CU_OBJ) -o $@ $(LIBS) $(LINK_FLAGS)
 
 FORCE:
 

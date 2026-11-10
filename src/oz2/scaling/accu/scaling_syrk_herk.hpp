@@ -22,12 +22,12 @@ void scaling_syrk(
     const size_t ldc_hi //
 ) {
     using Hi                      = common::hi_t<BACKEND>;
-    const unsigned num_col_blocks = (n < rowwise_sft_split_threshold) ? 1U : (n + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
+    const unsigned num_col_blocks = rowwise_sft_num_blocks<T, BACKEND, NUM_MODULI>(n, n, incA_lo, true);
     Hi *const partial_amax        = general::temporary_memory<common::low_t<BACKEND>, Hi>(A_lo.ptr0);
     Hi *const maxC                = partial_amax + size_t(n) * num_col_blocks;
 
     calc_sft_after_rowwise_sym_launch<T, BACKEND, NUM_MODULI, UPLO_C>(
-        stream, n, n, k, C_hi, ldc_hi, partial_amax, maxC);
+        stream, n, n, k, C_hi, ldc_hi, partial_amax, maxC, num_col_blocks);
 
     calc_sft_after_colwise_sym<T, BACKEND, NUM_MODULI, UPLO_C>
         <<<n, threads_accu, 0, stream>>>(
@@ -74,14 +74,14 @@ void scaling_herk(
     const size_t ldc_hi //
 ) {
     using Hi                      = common::hi_t<BACKEND>;
-    const unsigned num_col_blocks = (n < rowwise_sft_split_threshold) ? 1U : (n + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
+    const unsigned num_col_blocks = rowwise_sft_num_blocks<T, BACKEND, NUM_MODULI, BACKEND == Backend::FP8>(n, n, incA_lo, true);
     Hi *const partial_amax        = general::temporary_memory<common::low_t<BACKEND>, Hi>(A_lo.ptr0);
     Hi *const maxC                = partial_amax + size_t(n) * num_col_blocks;
 
     calc_sft_after_rowwise_sym_launch<T, BACKEND, NUM_MODULI, UPLO_C>(
-        stream, n, n, k, C_hi, ldc_hi, partial_amax, maxC);
+        stream, n, n, k, C_hi, ldc_hi, partial_amax, maxC, num_col_blocks);
 
-    calc_sft_after_colwise_sym<T, BACKEND, NUM_MODULI, UPLO_C>
+    calc_sft_after_colwise_sym<T, BACKEND, NUM_MODULI, UPLO_C, BACKEND == Backend::FP8>
         <<<n, threads_accu, 0, stream>>>(
             n, k, C_hi, ldc_hi, maxC, sftA);
 
@@ -89,16 +89,14 @@ void scaling_herk(
 
         // HERK: A*A^H -> A_lo^H*A_lo
         // A: n x k -> A_lo: k x n
-        general::scaling_rowwise<T, BACKEND, NUM_MODULI,
-                                 CUBLAS_FILL_MODE_FULL, CUBLAS_DIAG_NON_UNIT, false>(
+        general::scaling_rowwise<T, BACKEND, NUM_MODULI, CUBLAS_FILL_MODE_FULL, CUBLAS_DIAG_NON_UNIT, false, BACKEND == Backend::FP8>(
             stream, n, k, A, lda, A_lo, lda_lo, incA_lo, sftA);
 
     } else {
 
         // HERK: A^H*A -> A_lo^H*A_lo
         // A: k x n -> A_lo: k x n
-        scaling_colwise_launch<T, BACKEND, NUM_MODULI,
-                               CUBLAS_FILL_MODE_FULL, CUBLAS_DIAG_NON_UNIT, false>(
+        scaling_colwise_launch<T, BACKEND, NUM_MODULI, CUBLAS_FILL_MODE_FULL, CUBLAS_DIAG_NON_UNIT, false, BACKEND == Backend::FP8>(
             stream, k, n, A, lda, A_lo, lda_lo >> 2, incA_lo >> 2, sftA);
     }
 }

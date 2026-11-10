@@ -1,6 +1,6 @@
 #pragma once
 #include "../common/common.hpp"
-#include "../core/block_size.hpp"
+#include "../core/fp8_structured_block_size.hpp"
 #include "../core/blocking.hpp"
 #include "../core/oz2_core.hpp"
 #include "../gemm/worksize.hpp"
@@ -86,7 +86,15 @@ std::vector<double> run(
                    sm, sn, sB, NUM_MODULI, false, false, nullptr, nullptr, fastmode) <= limit;
     };
 
-    const core::BlockSize2D block = core::find_block_size_structured(s, f, false, fits);
+    const core::BlockSize2D block = [&] {
+        if constexpr (BACKEND == Backend::FP8) {
+            return core::find_block_size_structured_fp8<THerm, TFull, TC, NUM_MODULI, false>(
+                s, f, left, false, false, fastmode, fits, [] { return 1U; });
+        } else {
+            return core::find_block_size_structured(s, f, false, fits);
+        }
+    }();
+    
     if (!block) {
         assert(false && "The workspace-size limit is too small.");
         return std::vector<double>(4, 0.0);

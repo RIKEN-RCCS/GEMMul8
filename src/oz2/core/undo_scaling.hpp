@@ -36,7 +36,7 @@ inline void undo_scaling(
 
     } else if constexpr (FUNC == Func::herk || FUNC == Func::herkx) {
 
-        undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C, false, true>(
+        undo_scaling::undo_scaling<TC, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO_C, false, true, BACKEND == Backend::FP8 && FUNC == Func::herk>(
             stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
 
     } else if constexpr (FUNC == Func::trtrmm) {

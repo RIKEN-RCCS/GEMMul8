@@ -17,6 +17,56 @@ constexpr unsigned modulus_index(unsigned p) { return 20U + p; }
 
 constexpr info get(int32_t p) {
     switch (p) {
+    case 9061:
+        return {
+            9061,
+            3U,
+            0,
+            {  13,   17,   41},
+            {3485, 1599, 3978},
+            24U,
+            1526
+        };
+    case 1833:
+        return {
+            1833,
+            2U,
+            0,
+            { 39,   47, 1},
+            {235, -234, 0},
+            30U,
+            0
+        };
+    case 2107:
+        return {
+            2107,
+            2U,
+            0,
+            {  43,  49, 1},
+            {-343, 344, 0},
+            32U,
+            0
+        };
+    case 697:
+        return {
+            697,
+            2U,
+            0,
+            { 17,   41, 1},
+            {205, -204, 0},
+            24U,
+            132
+        };
+    case 26825:
+        return {
+            26825,
+            3U,
+            0,
+            {   25,    29,    37},
+            {12876, -9250, -3625},
+            20U,
+            882
+        };
     case 13325:
         return {
             13325,
@@ -680,7 +730,28 @@ inline constexpr int32_t real_congruence18[] = {1249, 1223, 1201, 1193, 1181, 11
 inline constexpr int32_t real_congruence19[] = {1283, 1279, 1249, 1223, 1201, 1193, 1181, 1171, 1163, 1153, 1151, 1129, 527, 725, 343, 11583, 22496, 2021, 943};
 inline constexpr int32_t real_congruence20[] = {11583, 22496, 49, 1279, 1249, 1223, 1201, 1193, 1181, 1171, 1163, 1153, 1151, 1129, 1123, 1283, 527, 725, 2021, 943};
 
-constexpr int32_t modulus(unsigned n, unsigned i, bool complex) {
+constexpr int32_t herk_modulus(unsigned n, unsigned i) {
+    if (n <= 2U) {
+        constexpr int32_t p[] = {697, 26825};
+        return p[i];
+    }
+    if (n == 5U || n == 6U) {
+        constexpr int32_t p[] = {1313, 697, 26825, 1193, 1201, 1249};
+        return p[i + unsigned(n == 5U && i >= 3U)];
+    }
+    constexpr int32_t tail[] = {1009, 1013, 1021, 1033, 1049, 1061, 1069,
+                                1093, 1097, 1109, 1117, 1129, 1153, 1181,
+                                1193, 1201, 1249};
+    const unsigned prefix    = n == 4U || n >= 14U ? 3U : 2U;
+    if (i < prefix) {
+        constexpr int32_t p[] = {2303, 9061, 26825};
+        return p[i + 3U - prefix];
+    }
+    return tail[17U + i - n];
+}
+
+constexpr int32_t modulus(unsigned n, unsigned i, bool complex, bool herk = false) {
+    if (complex && herk) return herk_modulus(n, i);
     if (!complex) {
         if (n == 2) {
             constexpr int32_t small[] = {65231, 2303};
@@ -720,6 +791,14 @@ constexpr int32_t modulus(unsigned n, unsigned i, bool complex) {
     }
     case 4U: {
         constexpr int32_t p[] = {49, 2021, 13325, 18241};
+        return p[i];
+    }
+    case 5U: {
+        constexpr int32_t p[] = {1833, 2107, 697, 26825, 1249};
+        return p[i];
+    }
+    case 6U: {
+        constexpr int32_t p[] = {1833, 2107, 697, 26825, 1201, 1249};
         return p[i];
     }
     case 7U: {
@@ -784,8 +863,8 @@ constexpr int32_t modulus(unsigned n, unsigned i, bool complex) {
                       : complex_large[i];
 }
 
-constexpr unsigned index(unsigned n, unsigned i, bool complex) {
-    return modulus_index(unsigned(modulus(n, i, complex)));
+constexpr unsigned index(unsigned n, unsigned i, bool complex, bool herk = false) {
+    return modulus_index(unsigned(modulus(n, i, complex, herk)));
 }
 
 constexpr unsigned complex_parts(int32_t p, bool herk = false) {
@@ -795,26 +874,26 @@ constexpr unsigned complex_parts(int32_t p, bool herk = false) {
 template <int32_t P, bool Herk = false>
 inline constexpr unsigned complex_parts_v = complex_parts(P, Herk);
 
-constexpr bool mixed_complex(unsigned n) {
+constexpr bool mixed_complex(unsigned n, bool herk = false) {
     for (unsigned i = 0; i < n; ++i)
-        if (complex_parts(modulus(n, i, true)) == 3U) return true;
+        if (complex_parts(modulus(n, i, true, herk)) == 3U) return true;
     return false;
 }
 
-template <unsigned N>
-inline constexpr bool mixed_complex_v = mixed_complex(N);
+template <unsigned N, bool Herk = false>
+inline constexpr bool mixed_complex_v = mixed_complex(N, Herk);
 
-constexpr unsigned planes(unsigned n, unsigned first, unsigned count, bool complex) {
+constexpr unsigned planes(unsigned n, unsigned first, unsigned count, bool complex, bool herk = false) {
     unsigned sum = 0;
     for (unsigned i = first; i < first + count; ++i) {
-        const int32_t p = modulus(n, i, complex);
-        sum += get(p).products * (complex ? complex_parts(p) : 1U);
+        const int32_t p = modulus(n, i, complex, herk);
+        sum += get(p).products * (complex ? (herk ? 2U : complex_parts(p)) : 1U);
     }
     return sum;
 }
 
-template <unsigned N, bool Complex>
-inline constexpr unsigned plane_count = Complex ? (planes(N, 0U, N, true) + 1U) / 2U : planes(N, 0U, N, false);
+template <unsigned N, bool Complex, bool Herk = false>
+inline constexpr unsigned plane_count = Complex ? (planes(N, 0U, N, true, Herk) + 1U) / 2U : planes(N, 0U, N, false);
 
 constexpr unsigned plane_max_abs(info s, unsigned j) {
     if (s.w == 0 || s.p == 19305 || s.p == 11583) {
@@ -888,6 +967,11 @@ constexpr unsigned k_block(int32_t p, bool first, unsigned alignment = 256U) {
 } // namespace gemmul8::common::fp8_plan
 
 #define GEMMUL8_FP8_FOR_EACH_MODULUS(M) \
+    M(9061)                             \
+    M(1833)                             \
+    M(2107)                             \
+    M(697)                              \
+    M(26825)                            \
     M(13325)                            \
     M(1617)                             \
     M(33)                               \
@@ -951,6 +1035,12 @@ constexpr unsigned k_block(int32_t p, bool first, unsigned alignment = 256U) {
     M(11583)
 
 #define GEMMUL8_FP8_FOR_EACH_COMPLEX_MODULUS(M) \
+    M(9061)                                     \
+    M(2303)                                     \
+    M(1833)                                     \
+    M(2107)                                     \
+    M(697)                                      \
+    M(26825)                                    \
     M(13325)                                    \
     M(1617)                                     \
     M(33)                                       \

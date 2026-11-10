@@ -1,6 +1,6 @@
 #pragma once
 #include "../common/common.hpp"
-#include "../core/block_size.hpp"
+#include "../core/fp8_rankk_block_size.hpp"
 #include "../core/blocking.hpp"
 #include "../core/oz2_core.hpp"
 #include "../gemm/worksize.hpp"
@@ -72,7 +72,15 @@ std::vector<double> run(
                    nB, nB, kB, NUM_MODULI, false, false, nullptr, nullptr, fastmode) <= limit;
     };
 
-    const core::BlockSize2D block = core::find_block_size_rankk<BACKEND, NUM_MODULI>(n, k, false, fits);
+    const core::BlockSize2D block = [&] {
+        if constexpr (BACKEND == Backend::FP8) {
+            return core::find_block_size_rankk_fp8<Func::syrkx, TA, TB, TC, NUM_MODULI>(
+                n, k, fastmode, UPLO_C, handle.arch, fits);
+        } else {
+            return core::find_block_size_rankk<BACKEND, NUM_MODULI>(n, k, false, fits);
+        }
+    }();
+
     if (!block) {
         assert(false && "The workspace-size limit is too small.");
         return std::vector<double>(4, 0.0);

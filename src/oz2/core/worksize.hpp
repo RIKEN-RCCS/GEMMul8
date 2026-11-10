@@ -84,7 +84,7 @@ inline size_t workSize_rk(
     const size_t sizeA     = k_pad * n_pad;
     const size_t sizeC     = n_pad * n;
     const size_t size_vecA = n_pad;
-    const unsigned num_mat = common::table::num_mat<BACKEND, is_Complex>(NUM_MODULI);
+    const unsigned num_mat = common::table::num_mat<BACKEND, is_Complex, HERK>(NUM_MODULI);
     unsigned num_A_lo      = num_mat;
     if constexpr (is_Complex) num_A_lo *= 2;
 

@@ -24,13 +24,18 @@ inline constexpr cublasFillMode_t UPLO = GEMMUL8_INST_FILLMODE;
 #endif
 inline constexpr cublasDiagType_t DIAG = GEMMUL8_INST_DIAG;
 
+#ifndef GEMMUL8_INST_HERK
+    #define GEMMUL8_INST_HERK false
+#endif
+inline constexpr bool HERK = GEMMUL8_INST_HERK;
+
 } // namespace
 
 static_assert(UPLO != CUBLAS_FILL_MODE_FULL || DIAG == CUBLAS_DIAG_NON_UNIT,
               "When UPLO is CUBLAS_FILL_MODE_FULL, DIAG must be CUBLAS_DIAG_NON_UNIT.");
 
 #define INSTANTIATE_THIS(NM)                                         \
-    template void scaling<T, BE, NM, UPLO, DIAG>(                    \
+    template void scaling<T, BE, NM, UPLO, DIAG, HERK>(              \
         const cudaStream_t,                                          \
         const cublasOperation_t, const cublasSideMode_t,             \
         const unsigned, const unsigned,                              \

@@ -17,7 +17,7 @@ inline const common::hi_t<B> *grouped_products_impl(
     Multiply &multiply,
     std::index_sequence<G...> //
 ) {
-    using Plan               = common::crt_group_plan<B, N, Complex>;
+    using Plan               = common::crt_group_plan<B, N, Complex, F == Func::herk>;
     using Hi                 = common::hi_t<B>;
     constexpr size_t blas    = size_t(32) << 20;
     const size_t sizeC       = ldc * n;
@@ -40,8 +40,8 @@ inline const common::hi_t<B> *grouped_products_impl(
         for (unsigned i = first; i < end;) {
             const unsigned count = (handle.arch == 121 || (handle.arch == 90 && n > 2048))
                                        ? 1U
-                                       : limit_batch_for_k<B, Complex>(i, end - i, k, N);
-            configure_matprod_k_blocking<B, Complex>(handle, i, k);
+                                       : limit_batch_for_k<B, Complex, F == Func::herk>(i, end - i, k, N);
+            configure_matprod_k_blocking<B, Complex, F == Func::herk>(handle, i, k);
             auto C_hi = common::make_matptr<Hi, Complex, Complex ? 2U : 1U>(
                 hi + sizeC * Layout::planes(N, first, i - first), sizeC * Layout::products(N, i));
             if constexpr (F == Func::herk) {
@@ -105,7 +105,7 @@ inline const common::hi_t<B> *grouped_products(
 ) {
     return grouped_products_impl<F, B, N, Complex, UA, UB, UC, Layout>(
         stream, handle, opA, opB, ldc, n, k, work, timer, multiply,
-        std::make_index_sequence<common::crt_group_plan<B, N, Complex>::count>{});
+        std::make_index_sequence<common::crt_group_plan<B, N, Complex, F == Func::herk>::count>{});
 }
 
 } // namespace gemmul8::oz2::core

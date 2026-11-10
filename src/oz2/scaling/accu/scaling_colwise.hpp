@@ -5,7 +5,7 @@
 namespace gemmul8::scaling::accu {
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ>
+          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ, bool HERK = false>
 __device__ __forceinline__ void scaling_colwise_body(
     const unsigned rows_A,
     const T *const __restrict__ A, const size_t lda,
@@ -22,27 +22,27 @@ __device__ __forceinline__ void scaling_colwise_body(
                   std::is_same_v<T, float> &&
                   UPLO == CUBLAS_FILL_MODE_FULL &&
                   (NUM_MODULI >= 8U && NUM_MODULI <= 11U)) {
-        general::scaling_colwise_full_device<T, BACKEND, NUM_MODULI, CONJ, true>(
+        general::scaling_colwise_full_device<T, BACKEND, NUM_MODULI, CONJ, true, false, HERK>(
             rows_A, in, A_lo, lda_lo, incA_lo, sft);
     } else
 #endif
         if constexpr (BACKEND == Backend::FP8 && common::isComplex<T> &&
                       general::fp8_complex_column_registers<T, NUM_MODULI> != 0U && UPLO == CUBLAS_FILL_MODE_FULL) {
-        general::scaling_colwise_full_device<T, BACKEND, NUM_MODULI, CONJ, false, true>(
+        general::scaling_colwise_full_device<T, BACKEND, NUM_MODULI, CONJ, false, true, HERK>(
             rows_A, in, A_lo, lda_lo, incA_lo, sft);
-    } else general::scaling_colwise_device<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ>(
+    } else general::scaling_colwise_device<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ, HERK>(
         rows_A, in, A_lo, lda_lo, incA_lo, sft);
 }
 
 GEMMUL8_FP8_KERNEL_EX(scaling_colwise,
-                      (typename T, Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ),
-                      (T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ),
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ, bool HERK = false),
+                      (T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ, HERK),
                       (BACKEND == Backend::FP8 && ((!common::isComplex<T> && NUM_MODULI >= 6U) || general::fp8_complex_column_registers<T, NUM_MODULI> != 0U) && UPLO == CUBLAS_FILL_MODE_FULL),
                       (common::isComplex<T> ? general::fp8_complex_column_registers<T, NUM_MODULI> : general::fp8_column_registers<T, NUM_MODULI>),
                       (BACKEND == Backend::FP8 && UPLO == CUBLAS_FILL_MODE_FULL ? general::fp8_refined_registers<T, NUM_MODULI, general::fp8_kernel_kind::accurate> : 0U))
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ>
+          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ, bool HERK = false>
 inline void scaling_colwise_launch(
     const cudaStream_t stream,
     const unsigned rows_A,
@@ -65,7 +65,7 @@ inline void scaling_colwise_launch(
                 const unsigned count = std::min(max_columns, cols_A - first);
                 auto part_lo         = A_lo;
                 part_lo.shift(first * lda_lo4 * 4U);
-                scaling_colwise_launch<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ>(
+                scaling_colwise_launch<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ, HERK>(
                     stream, rows_A, count, A + first * lda, lda,
                     part_lo, lda_lo4, incA_lo4, sftA + first);
                 first += count;
@@ -92,7 +92,7 @@ inline void scaling_colwise_launch(
                 unsigned(lda_lo4 / general::threads_x_colwise_full_tiled),
                 (cols_A + general::threads_y_colwise_full_tiled - 1U) / general::threads_y_colwise_full_tiled);
 
-            general::scaling_colwise_full_tiled_aligned_kernel<T, BACKEND, NUM_MODULI, CONJ>
+            general::scaling_colwise_full_tiled_aligned_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK>
                 <<<grid, threads, 0, stream>>>(
                     rows_A, cols_A, A, lda, A_lo, lda_lo4, incA_lo4, sftA);
 
@@ -101,7 +101,7 @@ inline void scaling_colwise_launch(
                 (unsigned(lda_lo4) + general::threads_x_colwise_full_tiled - 1U) / general::threads_x_colwise_full_tiled,
                 (cols_A + general::threads_y_colwise_full_tiled - 1U) / general::threads_y_colwise_full_tiled);
 
-            general::scaling_colwise_full_tiled_kernel<T, BACKEND, NUM_MODULI, CONJ>
+            general::scaling_colwise_full_tiled_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK>
                 <<<grid, threads, 0, stream>>>(
                     rows_A, cols_A, A, lda, A_lo, lda_lo4, incA_lo4, sftA);
         }
@@ -121,7 +121,7 @@ inline void scaling_colwise_launch(
             (rows4 + general::threads_x_colwise_full_tiled - 1U) / general::threads_x_colwise_full_tiled,
             (cols_grid + general::threads_y_colwise_full_tiled - 1U) / general::threads_y_colwise_full_tiled);
 
-        general::scaling_colwise_tri_tiled_kernel<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ>
+        general::scaling_colwise_tri_tiled_kernel<T, BACKEND, NUM_MODULI, UPLO, DIAG, CONJ, HERK>
             <<<grid, threads, 0, stream>>>(
                 rows_A, cols_A, A, lda, A_lo, lda_lo4, incA_lo4, sftA);
     }

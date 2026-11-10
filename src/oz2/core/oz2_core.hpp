@@ -276,7 +276,7 @@ inline std::vector<double> oz2_core_rk(
 
     // Set workspace
     constexpr unsigned matmul_per_moduli = COMPLEX ? 2u : 1u;
-    constexpr unsigned num_mat           = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX>;
+    constexpr unsigned num_mat           = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX, FUNC == Func::herk>;
 
     using Layout = product_workspace<BACKEND, COMPLEX, FUNC == Func::herk>;
 
@@ -346,8 +346,8 @@ inline std::vector<double> oz2_core_rk(
 
             unsigned bcnt = batch_count<NUM_MODULI, Layout>(
                 handle.arch, n, i, sizeC, lwork_blas, worksizeC);
-            bcnt = limit_batch_for_k<BACKEND, COMPLEX>(i, bcnt, k_pad, NUM_MODULI);
-            configure_matprod_k_blocking<BACKEND, COMPLEX>(handle, i, k_pad);
+            bcnt = limit_batch_for_k<BACKEND, COMPLEX, FUNC == Func::herk>(i, bcnt, k_pad, NUM_MODULI);
+            configure_matprod_k_blocking<BACKEND, COMPLEX, FUNC == Func::herk>(handle, i, k_pad);
 
             const size_t mid_bytes = (i + 1u < NUM_MODULI) ? sizeC_Mid : 0u;
             const size_t gap       = std::max<size_t>(lwork_blas, mid_bytes);

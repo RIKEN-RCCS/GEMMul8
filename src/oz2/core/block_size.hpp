@@ -262,18 +262,13 @@ inline void for_each_nearby_block_count(size_t n, size_t center, F &&f) {
 }
 
 template <class WorkSize>
-inline BlockSize3D find_block_size_gemm_impl(
-    size_t m, size_t n, size_t k,
+inline BlockSize3D find_block_size_gemm_states(
+    const std::vector<BlockState> &m_states,
+    const std::vector<BlockState> &n_states,
+    const std::vector<BlockState> &k_states,
     size_t limit,
     WorkSize &&worksize //
 ) {
-    if (m == 0 || n == 0 || k == 0) return {};
-
-    if (worksize(m, n, k) <= limit) return {m, n, k};
-
-    const auto m_states = make_block_states(m, BLOCK_TARGET_MN);
-    const auto n_states = make_block_states(n, BLOCK_TARGET_MN);
-    const auto k_states = make_block_states(k, BLOCK_TARGET_K);
     if (m_states.empty() || n_states.empty() || k_states.empty()) return {};
 
     if (worksize(m_states.back().block, n_states.back().block, k_states.back().block) > limit) return {};
@@ -397,6 +392,22 @@ inline BlockSize3D find_block_size_gemm_impl(
     return best;
 }
 
+template <class WorkSize>
+inline BlockSize3D find_block_size_gemm_impl(
+    size_t m, size_t n, size_t k,
+    size_t limit,
+    WorkSize &&worksize //
+) {
+    if (m == 0 || n == 0 || k == 0) return {};
+
+    if (worksize(m, n, k) <= limit) return {m, n, k};
+
+    const auto m_states = make_block_states(m, BLOCK_TARGET_MN);
+    const auto n_states = make_block_states(n, BLOCK_TARGET_MN);
+    const auto k_states = make_block_states(k, BLOCK_TARGET_K);
+    return find_block_size_gemm_states(m_states, n_states, k_states, limit, std::forward<WorkSize>(worksize));
+}
+
 template <Backend BACKEND, unsigned NUM_MODULI, class WorkSize>
 inline BlockSize3D find_block_size_gemm(
     size_t m, size_t n, size_t k, size_t limit,
@@ -417,7 +428,8 @@ inline BlockSize3D find_block_size_gemm_runtime(
 template <Backend BACKEND, unsigned NUM_MODULI, class Fits>
 inline BlockSize2D find_block_size_rankk(
     size_t n, size_t k, bool rank2,
-    Fits &&fits //
+    Fits &&fits,
+    size_t max_k_block = std::numeric_limits<size_t>::max() //
 ) {
     if (n == 0 || k == 0) return {};
 
@@ -431,6 +443,8 @@ inline BlockSize2D find_block_size_rankk(
     auto consider = [&](size_t nn, size_t nk) {
         const size_t nB = block_size_from_count(n, nn);
         const size_t kB = block_size_from_count(k, nk);
+
+        if (kB > max_k_block) return;
 
         const size_t nn_actual = block_count(n, nB);
         if (!fits(nB, kB, nn_actual > 1)) return;
@@ -476,7 +490,8 @@ inline BlockSize2D find_block_size_rankk(
 template <class Fits>
 inline BlockSize2D find_block_size_structured(
     size_t s, size_t f, bool triangular,
-    Fits &&fits //
+    Fits &&fits,
+    size_t max_x_block = std::numeric_limits<size_t>::max() //
 ) {
     if (s == 0 || f == 0) return {};
 
@@ -490,6 +505,8 @@ inline BlockSize2D find_block_size_structured(
     auto consider = [&](size_t ns, size_t nf) {
         const size_t sB = block_size_from_count(s, ns);
         const size_t fB = block_size_from_count(f, nf);
+
+        if (sB > max_x_block) return;
 
         const size_t ns_actual = block_count(s, sB);
         if (!fits(sB, fB, ns_actual > 1)) return;

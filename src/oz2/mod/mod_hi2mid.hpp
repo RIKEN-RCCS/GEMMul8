@@ -489,7 +489,7 @@ void mod_hi2mid_AHA(
     const unsigned num_moduli //
 ) {
     if constexpr (BACKEND == Backend::FP8) {
-        switch (common::fp8_plan::modulus(num_moduli, idx, true)) {
+        switch (common::fp8_plan::modulus(num_moduli, idx, true, true)) {
             GEMMUL8_FP8_FOR_EACH_COMPLEX_MODULUS(GEMMUL8_FP8_MID_CASE)
         }
     } else {

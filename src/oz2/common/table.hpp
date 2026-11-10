@@ -10,8 +10,8 @@ namespace gemmul8::common::table {
 template <Backend BACKEND, unsigned IDX, bool COMPLEX = false>
 inline constexpr int32_t moduli = (BACKEND == Backend::FP8 && IDX >= 20U) ? int32_t(IDX - 20U) : 0;
 
-template <Backend BACKEND, unsigned NUM_MODULI, unsigned IDX, bool COMPLEX = false>
-inline constexpr unsigned active_index = BACKEND == Backend::FP8 ? fp8_plan::index(NUM_MODULI, IDX, COMPLEX) : IDX;
+template <Backend BACKEND, unsigned NUM_MODULI, unsigned IDX, bool COMPLEX = false, bool HERK = false>
+inline constexpr unsigned active_index = BACKEND == Backend::FP8 ? fp8_plan::index(NUM_MODULI, IDX, COMPLEX, HERK) : IDX;
 
 // INT8 real: moduli
 template <> inline constexpr int32_t moduli<Backend::INT8, 0U, false>  = 256;
@@ -212,17 +212,17 @@ template <> inline constexpr int32_t sqrt_moduli<12U, true> = 29;
 //==========
 // number of matrices for workspace of A/B
 //==========
-template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false>
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false, bool HERK = false>
 __host__ __device__ constexpr unsigned num_mat_constexpr() {
     static_assert(NUM_MODULI <= 20U, "NUM_MODULI must be in [0, 20]");
     if constexpr (BACKEND == Backend::INT8) {
         return NUM_MODULI;
     } else {
-        return fp8_plan::plane_count<NUM_MODULI, COMPLEX>;
+        return fp8_plan::plane_count<NUM_MODULI, COMPLEX, HERK>;
     }
 }
-template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false>
-inline constexpr unsigned num_mat_v = num_mat_constexpr<BACKEND, NUM_MODULI, COMPLEX>();
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false, bool HERK = false>
+inline constexpr unsigned num_mat_v = num_mat_constexpr<BACKEND, NUM_MODULI, COMPLEX, HERK>();
 
 inline constexpr unsigned num_mat_fp8[21] = {
     num_mat_v<Backend::FP8, 0U, false>,
@@ -270,11 +270,13 @@ inline constexpr unsigned num_mat_fp8_complex[21] = {
     num_mat_v<Backend::FP8, 19U, true>,
     num_mat_v<Backend::FP8, 20U, true>};
 
-template <Backend BACKEND, bool COMPLEX = false>
+template <Backend BACKEND, bool COMPLEX = false, bool HERK = false>
 inline unsigned num_mat(unsigned NUM_MODULI) {
     assert(NUM_MODULI <= 20U);
     if constexpr (BACKEND == Backend::INT8) {
         return NUM_MODULI;
+    } else if constexpr (COMPLEX && HERK) {
+        return (fp8_plan::planes(NUM_MODULI, 0U, NUM_MODULI, true, true) + 1U) / 2U;
     } else if constexpr (COMPLEX) {
         return num_mat_fp8_complex[NUM_MODULI];
     } else {
@@ -285,7 +287,11 @@ inline unsigned num_mat(unsigned NUM_MODULI) {
 //==========
 // log2P = round-down( log2(prod(moduli)-1)/2 - 0.5 ) in float
 //==========
-template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false> inline constexpr float log2P = 0.0F;
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX = false, bool HERK = false>
+inline constexpr float log2P = 0.0F;
+
+template <Backend B, unsigned N, bool Complex>
+inline constexpr float log2P<B, N, Complex, true> = log2P<B, N, Complex>;
 
 // INT8 real
 template <> inline constexpr float log2P<Backend::INT8, 2U, false>  = 0x1.dfd18e0000000p+2F;
@@ -354,8 +360,8 @@ template <> inline constexpr float log2P<Backend::FP8, 20U, false> = 0x1.99a06a0
 template <> inline constexpr float log2P<Backend::FP8, 2U, true>  = 0x1.72803a0000000p+3F;
 template <> inline constexpr float log2P<Backend::FP8, 3U, true>  = 0x1.03c58a0000000p+4F;
 template <> inline constexpr float log2P<Backend::FP8, 4U, true>  = 0x1.5b9e520000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 5U, true>  = 0x1.b040940000000p+4F;
-template <> inline constexpr float log2P<Backend::FP8, 6U, true>  = 0x1.0101f40000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 5U, true>  = 0x1.ba97320000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 6U, true>  = 0x1.0637240000000p+5F;
 template <> inline constexpr float log2P<Backend::FP8, 7U, true>  = 0x1.1a82260000000p+5F;
 template <> inline constexpr float log2P<Backend::FP8, 8U, true>  = 0x1.4363d00000000p+5F;
 template <> inline constexpr float log2P<Backend::FP8, 9U, true>  = 0x1.6c368c0000000p+5F;
@@ -370,5 +376,26 @@ template <> inline constexpr float log2P<Backend::FP8, 17U, true> = 0x1.5498e000
 template <> inline constexpr float log2P<Backend::FP8, 18U, true> = 0x1.68aab20000000p+6F;
 template <> inline constexpr float log2P<Backend::FP8, 19U, true> = 0x1.7cb1280000000p+6F;
 template <> inline constexpr float log2P<Backend::FP8, 20U, true> = 0x1.90aefe0000000p+6F;
+
+// FP8 HERK
+template <> inline constexpr float log2P<Backend::FP8, 2U, true, true>  = 0x1.72803a0000000p+3F;
+template <> inline constexpr float log2P<Backend::FP8, 3U, true, true>  = 0x1.29257a0000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 4U, true, true>  = 0x1.8280340000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 5U, true, true>  = 0x1.b040940000000p+4F;
+template <> inline constexpr float log2P<Backend::FP8, 6U, true, true>  = 0x1.0101f40000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 7U, true, true>  = 0x1.37e1f60000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 8U, true, true>  = 0x1.60722c0000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 9U, true, true>  = 0x1.88f2980000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 10U, true, true> = 0x1.b168660000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 11U, true, true> = 0x1.d9ce220000000p+5F;
+template <> inline constexpr float log2P<Backend::FP8, 12U, true, true> = 0x1.01173c0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 13U, true, true> = 0x1.1537000000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 14U, true, true> = 0x1.2b8dae0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 15U, true, true> = 0x1.3fa7e60000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 16U, true, true> = 0x1.53b9b80000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 17U, true, true> = 0x1.67c02e0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 18U, true, true> = 0x1.7bbe040000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 19U, true, true> = 0x1.8fb60a0000000p+6F;
+template <> inline constexpr float log2P<Backend::FP8, 20U, true, true> = 0x1.a3ab220000000p+6F;
 
 } // namespace gemmul8::common::table

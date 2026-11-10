@@ -3,13 +3,14 @@
 #include "../../mod/mod.hpp"
 
 #include "config.hpp"
+#include "scaling_general_declaration.hpp"
 #include "roundup.hpp"
 #include "helper_triangular.hpp"
 #include "store.hpp"
 
 namespace gemmul8::scaling::general {
 
-template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false>
 __device__ __forceinline__ void scaling_rowwise_full_kernel_body(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -59,22 +60,22 @@ __device__ __forceinline__ void scaling_rowwise_full_kernel_body(
         if constexpr (common::isComplex<T>) {
             common::low_t<BACKEND> *__restrict__ out_1 = A_lo.ptr0 + idx;
             common::low_t<BACKEND> *__restrict__ out_2 = A_lo.ptr1 + idx;
-            mod::ModUnroll<NUM_MODULI, ValT>::run(out_1, out_2, incA_lo, in);
+            mod::ModUnroll<NUM_MODULI, ValT, HERK>::run(out_1, out_2, incA_lo, in);
         } else {
             common::low_t<BACKEND> *__restrict__ out = A_lo.ptr0 + idx;
-            mod::ModUnroll<NUM_MODULI, ValT>::run(out, incA_lo, in);
+            mod::ModUnroll<NUM_MODULI, ValT, HERK>::run(out, incA_lo, in);
         }
     }
 }
 
 GEMMUL8_FP8_KERNEL_EX(scaling_rowwise_full_kernel,
-                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ),
-                      (T, BACKEND, NUM_MODULI, CONJ),
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false),
+                      (T, BACKEND, NUM_MODULI, CONJ, HERK),
                       (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_scalar_registers<T, NUM_MODULI> != 0U),
                       (fp8_scalar_registers<T, NUM_MODULI>),
                       (BACKEND == Backend::FP8 ? fp8_refined_registers<T, NUM_MODULI, fp8_kernel_kind::row> : 0U))
 
-template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false>
 __device__ __forceinline__ void scaling_rowwise_full_vec4_kernel_body(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -122,23 +123,23 @@ __device__ __forceinline__ void scaling_rowwise_full_vec4_kernel_body(
         Low4 *__restrict__ out0 = reinterpret_cast<Low4 *>(A_lo.ptr0) + idx;
         if constexpr (common::isComplex<T>) {
             Low4 *__restrict__ out1 = reinterpret_cast<Low4 *>(A_lo.ptr1) + idx;
-            mod::ModUnroll<NUM_MODULI, ValT>::run(out0, out1, incA_lo >> 2, v0, v1, v2, v3);
+            mod::ModUnroll<NUM_MODULI, ValT, HERK>::run(out0, out1, incA_lo >> 2, v0, v1, v2, v3);
         } else {
-            mod::ModUnroll<NUM_MODULI, ValT>::run(out0, incA_lo >> 2, v0, v1, v2, v3);
+            mod::ModUnroll<NUM_MODULI, ValT, HERK>::run(out0, incA_lo >> 2, v0, v1, v2, v3);
         }
     }
 }
 
 GEMMUL8_FP8_KERNEL_EX(scaling_rowwise_full_vec4_kernel,
-                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ),
-                      (T, BACKEND, NUM_MODULI, CONJ),
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false),
+                      (T, BACKEND, NUM_MODULI, CONJ, HERK),
                       (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_vector_registers<T, NUM_MODULI> != 0U),
                       (fp8_vector_registers<T, NUM_MODULI>),
                       (BACKEND == Backend::FP8 ? fp8_refined_registers<T, NUM_MODULI, fp8_kernel_kind::vector> : 0U))
 
 template <bool UPPER,
           typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasDiagType_t DIAG, bool CONJ>
+          cublasDiagType_t DIAG, bool CONJ, bool HERK = false>
 __global__ void scaling_rowwise_tri_kernel(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -198,16 +199,16 @@ __global__ void scaling_rowwise_tri_kernel(
         if constexpr (common::isComplex<T>) {
             common::low_t<BACKEND> *__restrict__ out_1 = A_lo.ptr0 + idx;
             common::low_t<BACKEND> *__restrict__ out_2 = A_lo.ptr1 + idx;
-            mod::ModUnroll<NUM_MODULI, ValT>::run(out_1, out_2, incA_lo, in);
+            mod::ModUnroll<NUM_MODULI, ValT, HERK>::run(out_1, out_2, incA_lo, in);
         } else {
             common::low_t<BACKEND> *__restrict__ out = A_lo.ptr0 + idx;
-            mod::ModUnroll<NUM_MODULI, ValT>::run(out, incA_lo, in);
+            mod::ModUnroll<NUM_MODULI, ValT, HERK>::run(out, incA_lo, in);
         }
     }
 }
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ>
+          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool CONJ, bool HERK>
 void scaling_rowwise(
     const cudaStream_t stream,
     const unsigned rows_A, const unsigned cols_A,
@@ -223,7 +224,7 @@ void scaling_rowwise(
 
     if constexpr (UPLO == CUBLAS_FILL_MODE_FULL) {
 
-        memset_padding_low_mats_2d_async<T, BACKEND, NUM_MODULI>(
+        memset_padding_low_mats_2d_async<T, BACKEND, NUM_MODULI, HERK>(
             stream, A_lo, cols_A, lda_lo, incA_lo / lda_lo);
 
         if constexpr (common::isCUDA && (!common::isComplex<T> || NUM_MODULI <= common::threshold<BACKEND, true>::S)) {
@@ -232,21 +233,21 @@ void scaling_rowwise(
             if ((alignment & 3U) == 0U) {
                 constexpr unsigned ty = BACKEND == Backend::FP8 ? 8U : threads_y_rowwise<BACKEND>;
                 constexpr dim3 threads_vec4(threads_x_general, ty);
-                scaling_rowwise_full_vec4_kernel<T, BACKEND, NUM_MODULI, CONJ>
+                scaling_rowwise_full_vec4_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK>
                     <<<grid, threads_vec4, 0, stream>>>(
                         rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
                 return;
             }
         }
 
-        scaling_rowwise_full_kernel<T, BACKEND, NUM_MODULI, CONJ>
+        scaling_rowwise_full_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK>
             <<<grid, threads, 0, stream>>>(
                 rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
 
     } else {
 
         constexpr bool isUPPER = UPLO == CUBLAS_FILL_MODE_UPPER;
-        scaling_rowwise_tri_kernel<isUPPER, T, BACKEND, NUM_MODULI, DIAG, CONJ>
+        scaling_rowwise_tri_kernel<isUPPER, T, BACKEND, NUM_MODULI, DIAG, CONJ, HERK>
             <<<grid, threads, 0, stream>>>(
                 rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
     }

@@ -9,13 +9,13 @@
 
 namespace gemmul8::undo_scaling {
 
-template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX> struct crt_moduli {
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX, bool HERK = false> struct crt_moduli {
     static constexpr uint32_t get(unsigned i) {
         using namespace common::table;
         if constexpr (BACKEND == Backend::INT8) {
             return COMPLEX ? moduli_int8_complex[i] : moduli_int8[i];
         } else {
-            return common::fp8_plan::modulus(NUM_MODULI, i, COMPLEX);
+            return common::fp8_plan::modulus(NUM_MODULI, i, COMPLEX, HERK);
         }
     }
 };
@@ -30,7 +30,7 @@ __device__ __forceinline__ int32_t raw_product_residue(
     }
 }
 
-template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX> struct crt_input {
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX, bool HERK = false> struct crt_input {
     static constexpr bool complex = COMPLEX;
     const common::mid_t<BACKEND, COMPLEX> *mid;
     size_t plane_size;
@@ -42,7 +42,7 @@ template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX> struct crt_input {
     __device__ __forceinline__ int2 load() const {
         if constexpr (IDX + 1 == NUM_MODULI) {
             if (tail.ptr0 != nullptr) {
-                constexpr unsigned MOD = common::table::active_index<BACKEND, NUM_MODULI, IDX, COMPLEX>;
+                constexpr unsigned MOD = common::table::active_index<BACKEND, NUM_MODULI, IDX, COMPLEX, HERK>;
                 const int32_t plus     = raw_product_residue<BACKEND, MOD, COMPLEX>(tail.ptr0, index, plane_size);
                 if constexpr (!COMPLEX) {
                     return int2{plus, 0};
@@ -68,8 +68,9 @@ template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX> struct crt_input {
     }
 };
 
-template <Backend B, unsigned N, bool Complex, bool Fused> struct crt_group_input {
+template <Backend B, unsigned N, bool Complex, bool Fused, bool HERK = false> struct crt_group_input {
     static constexpr bool complex = Complex;
+    static_assert(!HERK || !Fused);
 
     using Group = std::conditional_t<Complex, uint2, uint32_t>;
     const Group *mid;
@@ -78,7 +79,7 @@ template <Backend B, unsigned N, bool Complex, bool Fused> struct crt_group_inpu
     uint32_t index;
 
     template <unsigned I> __device__ __forceinline__ uint2 load() const {
-        using Plan = common::crt_group_plan<B, N, Complex>;
+        using Plan = common::crt_group_plan<B, N, Complex, HERK>;
         if constexpr (Fused && I + 1 == Plan::count) {
             constexpr unsigned first = Plan::groups.first[I];
             const mod::crt_group_input<B, N, Complex, first, N> input{last, index, uint32_t(plane_size)};
@@ -94,7 +95,7 @@ template <Backend B, unsigned N, bool Complex, bool Fused> struct crt_group_inpu
 };
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
-          bool GROUPED = false, bool FUSED = GROUPED>
+          bool GROUPED = false, bool FUSED = GROUPED, bool HERK = false>
 __device__ __forceinline__ T reconstruct_from_crt(
     const common::mid_t<BACKEND, common::isComplex<T>> *const __restrict__ C_mid,
     const size_t incC_mid,
@@ -103,16 +104,16 @@ __device__ __forceinline__ T reconstruct_from_crt(
     const int32_t herk_opposite = 0 //
 ) {
     constexpr bool COMPLEX = common::isComplex<T>;
-    using Plan             = common::crt_group_plan<BACKEND, NUM_MODULI, COMPLEX>;
-    using Moduli           = std::conditional_t<GROUPED, Plan, crt_moduli<BACKEND, NUM_MODULI, COMPLEX>>;
+    using Plan             = common::crt_group_plan<BACKEND, NUM_MODULI, COMPLEX, HERK>;
+    using Moduli           = std::conditional_t<GROUPED, Plan, crt_moduli<BACKEND, NUM_MODULI, COMPLEX, HERK>>;
     using Root             = crt::node<Moduli, 0, GROUPED ? Plan::count : NUM_MODULI>;
     constexpr auto modulus = Root::modulus;
     const auto input       = [&] {
         if constexpr (GROUPED) {
-            using Input = crt_group_input<BACKEND, NUM_MODULI, COMPLEX, FUSED>;
+            using Input = crt_group_input<BACKEND, NUM_MODULI, COMPLEX, FUSED, HERK>;
             return Input{reinterpret_cast<const typename Input::Group *>(C_mid - index) + index, incC_mid, tail.ptr0, uint32_t(index)};
         } else {
-            return crt_input<BACKEND, NUM_MODULI, COMPLEX>{C_mid, incC_mid, tail, index, herk_opposite};
+            return crt_input<BACKEND, NUM_MODULI, COMPLEX, HERK>{C_mid, incC_mid, tail, index, herk_opposite};
         }
     }();
     const auto exact = Root::reconstruct(input);

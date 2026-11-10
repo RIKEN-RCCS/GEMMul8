@@ -59,3 +59,18 @@ $(foreach t,$(FAST_TYPE_CODES_COMPLEX),\
   $(foreach b,$(FAST_BACKEND_CODES),\
     $(foreach u,$(FAST_UPLO_CODES),\
       $(call ADD_FAST_HEMM,$(t),$(b),$(u)))))
+
+# HERK-specific FP8 complex input plans.
+ifneq ($(filter herk,$(BUILD_OPS)),)
+define ADD_FAST_HERK
+$(eval $(call ADD_INST_OBJ,\
+    $(FAST_DIR)/scaling_herk_$(1)_f8,\
+    $(FAST_SCALING_SRC),\
+    -DGEMMUL8_INST_TYPE=$(call type_cpp,$(1)) \
+    -DGEMMUL8_INST_BACKEND=FP8 \
+    -DGEMMUL8_INST_FILLMODE=CUBLAS_FILL_MODE_FULL \
+    -DGEMMUL8_INST_DIAG=CUBLAS_DIAG_NON_UNIT \
+    -DGEMMUL8_INST_CONJ=false -DGEMMUL8_INST_HERK=true))
+endef
+$(foreach t,c z,$(call ADD_FAST_HERK,$(t)))
+endif

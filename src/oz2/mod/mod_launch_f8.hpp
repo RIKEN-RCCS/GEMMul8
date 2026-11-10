@@ -404,12 +404,15 @@ __device__ __forceinline__ uint32_t fp8_three_direct(V v) {
     return __ldg(&fp8_three_device<P>.value[(ar + P / 2) * P + ai + P / 2]);
 }
 
-template <unsigned IDX, typename V>
+template <unsigned IDX, typename V, bool HERK = false>
 __device__ __forceinline__ void mod_launch(__nv_fp8_e4m3 *plus, __nv_fp8_e4m3 *minus, size_t next, V v) {
     static_assert(IDX >= 20U);
     constexpr int32_t p = int32_t(IDX - 20U);
     constexpr auto s    = common::fp8_plan::scheme<p>;
-    if constexpr (s.root_minus_one == 0) {
+    if constexpr (HERK && s.root_minus_one == 0) {
+        mod_launch<IDX>(plus, next, v.x);
+        mod_launch<IDX>(minus, next, v.y);
+    } else if constexpr (s.root_minus_one == 0) {
         if constexpr (s.products == 2) {
             const auto r = fp8_three_pair<p>(v);
             store_awe_bytes<2>(plus, next, r.x);
@@ -448,7 +451,7 @@ __device__ __forceinline__ void mod_launch(__nv_fp8_e4m3 *plus, __nv_fp8_e4m3 *m
     }
 }
 
-template <unsigned IDX, typename V>
+template <unsigned IDX, typename V, bool HERK = false>
 __device__ __forceinline__ void mod_launch(
     __nv_fp8x4_e4m3 *plus, __nv_fp8x4_e4m3 *minus,
     size_t next, V v0, V v1, V v2, V v3 //
@@ -456,7 +459,10 @@ __device__ __forceinline__ void mod_launch(
     static_assert(IDX >= 20U);
     constexpr int32_t p = int32_t(IDX - 20U);
     constexpr auto s    = common::fp8_plan::scheme<p>;
-    if constexpr (s.root_minus_one == 0) {
+    if constexpr (HERK && s.root_minus_one == 0) {
+        mod_launch<IDX>(plus, next, v0.x, v1.x, v2.x, v3.x);
+        mod_launch<IDX>(minus, next, v0.y, v1.y, v2.y, v3.y);
+    } else if constexpr (s.root_minus_one == 0) {
         if constexpr (s.products == 2) {
             const auto a = fp8_three_pair<p>(v0), b = fp8_three_pair<p>(v1);
             const auto c = fp8_three_pair<p>(v2), d = fp8_three_pair<p>(v3);

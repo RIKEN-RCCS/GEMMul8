@@ -29,6 +29,11 @@ inline constexpr cublasDiagType_t DIAG = GEMMUL8_INST_DIAG;
 #endif
 inline constexpr bool CONJ = GEMMUL8_INST_CONJ;
 
+#ifndef GEMMUL8_INST_HERK
+    #define GEMMUL8_INST_HERK false
+#endif
+inline constexpr bool HERK = GEMMUL8_INST_HERK;
+
 } // namespace
 
 static_assert(UPLO != CUBLAS_FILL_MODE_FULL || DIAG == CUBLAS_DIAG_NON_UNIT,
@@ -36,13 +41,13 @@ static_assert(UPLO != CUBLAS_FILL_MODE_FULL || DIAG == CUBLAS_DIAG_NON_UNIT,
 static_assert(common::isComplex<T> || !CONJ,
               "CONJ=true requires complex T.");
 
-#define INSTANTIATE_THIS(NM)                                       \
-    template void scaling_rowwise<T, BE, NM, UPLO, DIAG, CONJ>(    \
-        const cudaStream_t,                                        \
-        const unsigned, const unsigned,                            \
-        const T *const, const size_t,                              \
-        common::matptr_t<common::low_t<BE>, common::isComplex<T>>, \
-        const size_t, const size_t,                                \
+#define INSTANTIATE_THIS(NM)                                          \
+    template void scaling_rowwise<T, BE, NM, UPLO, DIAG, CONJ, HERK>( \
+        const cudaStream_t,                                           \
+        const unsigned, const unsigned,                               \
+        const T *const, const size_t,                                 \
+        common::matptr_t<common::low_t<BE>, common::isComplex<T>>,    \
+        const size_t, const size_t,                                   \
         int16_t *const);
 
 INSTANTIATE_THIS(2U)

@@ -12,7 +12,7 @@ struct product_workspace {
 
     static constexpr unsigned products(unsigned n, unsigned i) {
         if constexpr (BACKEND == Backend::FP8) {
-            return common::fp8_plan::get(common::fp8_plan::modulus(n, i, Complex)).products;
+            return common::fp8_plan::get(common::fp8_plan::modulus(n, i, Complex, Herk)).products;
         } else {
             return 1U;
         }
@@ -23,7 +23,7 @@ struct product_workspace {
         for (unsigned j = 0; j < count; ++j) {
             unsigned c = parts;
             if constexpr (BACKEND == Backend::FP8 && Complex) {
-                c = common::fp8_plan::complex_parts(common::fp8_plan::modulus(n, i + j, true), Herk);
+                c = common::fp8_plan::complex_parts(common::fp8_plan::modulus(n, i + j, true, Herk), Herk);
             }
             sum += c * products(n, i + j);
         }
@@ -58,7 +58,7 @@ struct product_workspace {
             const size_t grouped_size = std::min(sizeC, size_t(8192) * 8192);
             const size_t group_bytes  = sizeof(uint32_t) * (Complex ? 2U : 1U) * grouped_size;
             for (unsigned i = 0, g = 0; i < n; ++g) {
-                const unsigned end = common::crt_group_end<BACKEND, Complex>(n, i);
+                const unsigned end = common::crt_group_end<BACKEND, Complex, Herk>(n, i);
                 const size_t gap   = std::max(group_bytes, pointer_bytes(n, i, end - i) + blas);
                 result             = std::max(result, g * group_bytes + gap + sizeof(common::hi_t<BACKEND>) * grouped_size * planes(n, i, end - i));
                 i                  = end;

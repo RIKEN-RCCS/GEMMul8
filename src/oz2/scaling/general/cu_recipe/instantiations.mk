@@ -67,3 +67,18 @@ $(foreach t,$(GENERAL_TYPE_CODES_COMPLEX),\
   $(foreach b,$(GENERAL_BACKEND_CODES),\
     $(foreach u,$(GENERAL_UPLO_CODES),\
       $(call ADD_GENERAL_HEMM,$(t),$(b),$(u)))))
+
+# HERK-specific FP8 complex input plans.
+ifneq ($(filter herk,$(BUILD_OPS)),)
+define ADD_GENERAL_HERK
+$(eval $(call ADD_INST_OBJ,\
+    $(GENERAL_DIR)/scaling_herk_$(1)_f8_$(2),\
+    $(GENERAL_ROWWISE_SRC),\
+    -DGEMMUL8_INST_TYPE=$(call type_cpp,$(1)) \
+    -DGEMMUL8_INST_BACKEND=FP8 \
+    -DGEMMUL8_INST_FILLMODE=CUBLAS_FILL_MODE_FULL \
+    -DGEMMUL8_INST_DIAG=CUBLAS_DIAG_NON_UNIT \
+    -DGEMMUL8_INST_CONJ=$(call conj_cpp,$(2)) -DGEMMUL8_INST_HERK=true))
+endef
+$(foreach t,c z,$(foreach cj,$(GENERAL_CONJ_CODES),$(call ADD_GENERAL_HERK,$(t),$(cj))))
+endif

@@ -8,20 +8,20 @@ namespace gemmul8::scaling::fast {
 
 inline constexpr float u2 = 0x1.0000000000000p-23F; // 2^-23
 
-template <Backend BACKEND, unsigned NUM_MODULI, typename T, bool COMPLEX = false>
+template <Backend BACKEND, unsigned NUM_MODULI, typename T, bool COMPLEX = false, bool HERK = false>
 __device__ __forceinline__ int32_t calc_sft(T vecnrm) {
     if (vecnrm == T(0.0)) return 0;
     const int32_t exponent = common::Tilogb<T>(vecnrm);
     const float vecnrmf    = common::float_ru<T>(common::Tscalbn<T>(vecnrm, -exponent));
     const float exponent2  = exponent * 0.5f;
-    constexpr float log2P  = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX>;
+    constexpr float log2P  = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX, HERK>;
     const float mu0        = __fsub_rd(log2P, exponent2);
     const float mu1        = __fadd_ru(__log2f(vecnrmf) * 0.5f, u2);
     return __float2int_rd(__fsub_rd(mu0, mu1));
 }
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, cublasDiagType_t DIAG>
+          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool HERK = false>
 __global__ void calc_sft_rowwise(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -38,13 +38,13 @@ __global__ void calc_sft_rowwise(
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < rows_A && threadIdx.x == 0) {
-        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>>(sum);
+        const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>, HERK>(sum);
         sftA[row_idx]     = int16_t(-sft);
     }
 }
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, cublasDiagType_t DIAG>
+          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool HERK = false>
 __device__ __forceinline__ int32_t calc_sft_colwise(
     const unsigned rows_A,
     const T *const __restrict__ in,
@@ -59,7 +59,7 @@ __device__ __forceinline__ int32_t calc_sft_colwise(
         sum              = common::__Tadd_ru<U>(sum, Uone);
     }
 
-    const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>>(sum);
+    const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>, HERK>(sum);
     if (threadIdx.x == 0) {
         const unsigned col_idx = blockIdx.x;
         sftA[col_idx]          = int16_t(-sft);
@@ -231,7 +231,7 @@ __global__ void calc_sft_rowwise_partial(
     }
 }
 
-template <typename T, Backend BACKEND, unsigned NUM_MODULI, cublasDiagType_t DIAG>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, cublasDiagType_t DIAG, bool HERK = false>
 __global__ void calc_sft_rowwise_reduce(
     const unsigned rows_A,
     const unsigned num_col_blocks,
@@ -258,14 +258,14 @@ __global__ void calc_sft_rowwise_reduce(
         }
 
         if (threadIdx.x == 0) {
-            const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>>(sum);
+            const int32_t sft = calc_sft<BACKEND, NUM_MODULI, U, common::isComplex<T>, HERK>(sum);
             sftA[row_idx]     = int16_t(-sft);
         }
     }
 }
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, cublasDiagType_t DIAG>
+          cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool HERK = false>
 inline void calc_sft_rowwise_launch(
     const cudaStream_t stream,
     const unsigned rows_A, const unsigned cols_A,
@@ -278,7 +278,7 @@ inline void calc_sft_rowwise_launch(
 
     if (cols_A < rowwise_sft_split_threshold) {
         const unsigned grid_findmax = (rows_A + common::TILE_DIM - 1U) / common::TILE_DIM;
-        calc_sft_rowwise<T, BACKEND, NUM_MODULI, UPLO, DIAG>
+        calc_sft_rowwise<T, BACKEND, NUM_MODULI, UPLO, DIAG, HERK>
             <<<grid_findmax, threads_findmax, 0, stream>>>(
                 rows_A, cols_A, A, lda, sftA);
         return;
@@ -298,7 +298,7 @@ inline void calc_sft_rowwise_launch(
     const unsigned grid_reduce =
         (rows_A + threads_y_rowwise_sft_reduce - 1U) / threads_y_rowwise_sft_reduce;
 
-    calc_sft_rowwise_reduce<T, BACKEND, NUM_MODULI, DIAG>
+    calc_sft_rowwise_reduce<T, BACKEND, NUM_MODULI, DIAG, HERK>
         <<<grid_reduce, threads_reduce, 0, stream>>>(
             rows_A, num_col_blocks, partial_sum, sftA);
 }

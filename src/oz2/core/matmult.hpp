@@ -23,7 +23,7 @@ inline unsigned batch_count(
 
 inline constexpr size_t K_BLOCK_INT8 = size_t(1 << 17);
 
-template <Backend BACKEND, bool COMPLEX = false>
+template <Backend BACKEND, bool COMPLEX = false, bool HERK = false>
 inline void configure_matprod_k_blocking(
     common::Handle_t &handle,
     const unsigned idx,
@@ -31,7 +31,7 @@ inline void configure_matprod_k_blocking(
 ) {
     handle.modulus_idx =
         BACKEND == Backend::FP8
-            ? common::fp8_plan::index(handle.fp8_num_moduli, idx, COMPLEX)
+            ? common::fp8_plan::index(handle.fp8_num_moduli, idx, COMPLEX, HERK)
             : idx;
     handle.modulus_complex    = COMPLEX;
     handle.matprod_fp8_planes = false;
@@ -42,7 +42,7 @@ inline void configure_matprod_k_blocking(
         handle.matprod_k_block_first = KB;
         handle.matprod_k_block_next  = KB;
     } else {
-        const int32_t p              = common::fp8_plan::modulus(handle.fp8_num_moduli, idx, COMPLEX);
+        const int32_t p              = common::fp8_plan::modulus(handle.fp8_num_moduli, idx, COMPLEX, HERK);
         const int KB0                = int(common::fp8_plan::k_block(p, true));
         const int KB                 = int(common::fp8_plan::k_block(p, false));
         handle.matprod_k_blocking    = k > size_t(KB0);
@@ -61,17 +61,17 @@ inline void configure_fp8_plane(common::Handle_t &handle, int32_t p,
     handle.matprod_k_blocking    = k > size_t(handle.matprod_k_block_first);
 }
 
-template <Backend BACKEND, bool COMPLEX = false>
+template <Backend BACKEND, bool COMPLEX = false, bool HERK = false>
 inline bool needs_k_blocking(const unsigned idx, const size_t k, const unsigned num_moduli) {
     if constexpr (BACKEND == Backend::INT8) {
         if (!COMPLEX && common::table::moduli_int8[idx] == 256) { return false; }
         return k > K_BLOCK_INT8;
     } else {
-        return k > common::fp8_plan::k_block(common::fp8_plan::modulus(num_moduli, idx, COMPLEX), true);
+        return k > common::fp8_plan::k_block(common::fp8_plan::modulus(num_moduli, idx, COMPLEX, HERK), true);
     }
 }
 
-template <Backend BACKEND, bool COMPLEX = false>
+template <Backend BACKEND, bool COMPLEX = false, bool HERK = false>
 inline unsigned limit_batch_for_k(
     const unsigned i,
     const unsigned bcnt,
@@ -82,7 +82,7 @@ inline unsigned limit_batch_for_k(
 
     while (safe < bcnt) {
         const unsigned idx = i + safe;
-        if (needs_k_blocking<BACKEND, COMPLEX>(idx, k, num_moduli)) { break; }
+        if (needs_k_blocking<BACKEND, COMPLEX, HERK>(idx, k, num_moduli)) { break; }
         ++safe;
     }
 
@@ -570,14 +570,14 @@ inline void error_free_matmult_f8_complex_strided(
 ) {
     using LowT          = common::low_t<Backend::FP8>;
     constexpr float one = 1.0f, zero = 0.0f;
-    const auto scheme       = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, idx, true));
-    const bool packed       = common::fp8_plan::mixed_complex(handle.fp8_num_moduli);
+    const auto scheme       = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, idx, true, KIND == common::MatMulKind::AHxA));
+    const bool packed       = common::fp8_plan::mixed_complex(handle.fp8_num_moduli, KIND == common::MatMulKind::AHxA);
     const unsigned inputs   = common::fp8_plan::complex_parts(scheme.p);
     const unsigned parts    = common::fp8_plan::complex_parts(scheme.p, KIND == common::MatMulKind::AHxA);
     const unsigned products = scheme.products;
     const bool k_blocking   = handle.matprod_k_blocking;
-    const int64_t strideA   = (packed ? inputs : 1U) * products * int64_t(sizeA);
-    const int64_t strideB   = (packed ? inputs : 1U) * products * int64_t(sizeB);
+    const int64_t strideA   = (packed ? (KIND == common::MatMulKind::AHxA ? 2U : inputs) : 1U) * products * int64_t(sizeA);
+    const int64_t strideB   = (packed ? (KIND == common::MatMulKind::AHxA ? 2U : inputs) : 1U) * products * int64_t(sizeB);
     const int64_t strideC   = products * parts * int64_t(sizeC);
 
     for (unsigned part = 0; part < parts; ++part) {
@@ -686,14 +686,14 @@ inline void error_free_matmult_f8_complex_strided_split(
 
     while (done < bcnt) {
         const unsigned cur      = idx + done;
-        const unsigned products = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur, true)).products;
+        const unsigned products = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur, true, KIND == common::MatMulKind::AHxA)).products;
 
-        const auto scheme    = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur, true));
+        const auto scheme    = common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur, true, KIND == common::MatMulKind::AHxA));
         const unsigned parts = common::fp8_plan::complex_parts(scheme.p, KIND == common::MatMulKind::AHxA);
         unsigned cnt         = 1;
         while (done + cnt < bcnt &&
-               common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur + cnt, true)).products == products &&
-               common::fp8_plan::complex_parts(common::fp8_plan::modulus(handle.fp8_num_moduli, cur + cnt, true), KIND == common::MatMulKind::AHxA) == parts) {
+               common::fp8_plan::get(common::fp8_plan::modulus(handle.fp8_num_moduli, cur + cnt, true, KIND == common::MatMulKind::AHxA)).products == products &&
+               common::fp8_plan::complex_parts(common::fp8_plan::modulus(handle.fp8_num_moduli, cur + cnt, true, KIND == common::MatMulKind::AHxA), KIND == common::MatMulKind::AHxA) == parts) {
             ++cnt;
         }
 

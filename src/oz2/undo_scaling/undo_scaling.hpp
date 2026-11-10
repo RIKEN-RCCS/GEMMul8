@@ -9,7 +9,7 @@
 
 namespace gemmul8::undo_scaling {
 
-template <Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO, bool HERMITIAN>
+template <Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO, bool HERMITIAN, bool HERK = false>
 __device__ __forceinline__ bool prepare_crt_tile(
     const unsigned m,
     const unsigned n,
@@ -25,7 +25,7 @@ __device__ __forceinline__ bool prepare_crt_tile(
             if (blockIdx.x < blockIdx.y) return false;
         }
 
-        constexpr unsigned IDX = common::table::active_index<BACKEND, NUM_MODULI, NUM_MODULI - 1, true>;
+        constexpr unsigned IDX = common::table::active_index<BACKEND, NUM_MODULI, NUM_MODULI - 1, true, HERK>;
 
         if (tail.ptr0 != nullptr && tail.ptr1 == nullptr) {
 #pragma unroll
@@ -50,7 +50,7 @@ __device__ __forceinline__ bool prepare_crt_tile(
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO, bool isTRTRMM,
           typename TAlpha, typename TBeta,
-          bool HERMITIAN = false, bool GROUPED = false>
+          bool HERMITIAN = false, bool GROUPED = false, bool HERK = false>
 __global__ void undo_scaling_kernel(
     const TAlpha alpha, const TBeta beta,
     const unsigned m, const unsigned n,
@@ -69,7 +69,7 @@ __global__ void undo_scaling_kernel(
     const unsigned row              = blockIdx.x * threads_x + threadIdx.x;
     __shared__ int32_t opposite[NONGROUPED_HERM ? 32 : 1][NONGROUPED_HERM ? 33 : 1];
 
-    if (!prepare_crt_tile<BACKEND, NUM_MODULI, UPLO, NONGROUPED_HERM>(m, n, ldc_mid, incC_mid, tail, opposite)) return;
+    if (!prepare_crt_tile<BACKEND, NUM_MODULI, UPLO, NONGROUPED_HERM, HERK>(m, n, ldc_mid, incC_mid, tail, opposite)) return;
 
 #pragma unroll 1
     for (unsigned j = 0; j < tile_columns; j += step_columns) {
@@ -92,7 +92,7 @@ __global__ void undo_scaling_kernel(
             if (row <= col) {
                 const size_t idx_C_mid = col * ldc_mid + row;
 
-                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
+                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN, HERK > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
 
                 const int sft        = int(sftA[row]) + int(sftB[col]);
                 const TCrt AB_scaled = rescale_crt<TCrt>(AB_crt, sft);
@@ -119,7 +119,7 @@ __global__ void undo_scaling_kernel(
             if (row >= col) {
                 const size_t idx_C_mid = col * ldc_mid + row;
 
-                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
+                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN, HERK > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
 
                 const int sft        = int(sftA[row]) + int(sftB[col]);
                 const TCrt AB_scaled = rescale_crt<TCrt>(AB_crt, sft);
@@ -145,7 +145,7 @@ __global__ void undo_scaling_kernel(
         } else {
             const size_t idx_C_mid = col * ldc_mid + row;
 
-            const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
+            const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN, HERK > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
 
             const int sft        = int(sftA[row]) + int(sftB[col]);
             const TCrt AB_scaled = rescale_crt<TCrt>(AB_crt, sft);
@@ -189,7 +189,7 @@ __global__ void undo_scaling_kernel(
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO, bool isTRTRMM,
           int ALPHA, int BETA,
-          bool HERMITIAN = false, bool GROUPED = false>
+          bool HERMITIAN = false, bool GROUPED = false, bool HERK = false>
 __global__ void undo_scaling_kernel_special(
     const unsigned m, const unsigned n,
     const common::mid_t<BACKEND, common::isComplex<T>> *const __restrict__ C_mid,
@@ -207,7 +207,7 @@ __global__ void undo_scaling_kernel_special(
     const unsigned row              = blockIdx.x * threads_x + threadIdx.x;
     __shared__ int32_t opposite[NONGROUPED_HERM ? 32 : 1][NONGROUPED_HERM ? 33 : 1];
 
-    if (!prepare_crt_tile<BACKEND, NUM_MODULI, UPLO, NONGROUPED_HERM>(m, n, ldc_mid, incC_mid, tail, opposite)) return;
+    if (!prepare_crt_tile<BACKEND, NUM_MODULI, UPLO, NONGROUPED_HERM, HERK>(m, n, ldc_mid, incC_mid, tail, opposite)) return;
 
 #pragma unroll 1
     for (unsigned j = 0; j < tile_columns; j += step_columns) {
@@ -230,7 +230,7 @@ __global__ void undo_scaling_kernel_special(
             if (row <= col) {
                 const size_t idx_C_mid = col * ldc_mid + row;
 
-                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
+                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN, HERK > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
 
                 const int sft        = int(sftA[row]) + int(sftB[col]);
                 const TCrt AB_scaled = rescale_crt<TCrt>(AB_crt, sft);
@@ -246,7 +246,7 @@ __global__ void undo_scaling_kernel_special(
             if (row >= col) {
                 const size_t idx_C_mid = col * ldc_mid + row;
 
-                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
+                const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN, HERK > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
 
                 const int sft        = int(sftA[row]) + int(sftB[col]);
                 const TCrt AB_scaled = rescale_crt<TCrt>(AB_crt, sft);
@@ -261,7 +261,7 @@ __global__ void undo_scaling_kernel_special(
         } else {
             const size_t idx_C_mid = col * ldc_mid + row;
 
-            const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
+            const TCrt AB_crt = reconstruct_from_crt < TCrt, BACKEND, NUM_MODULI, GROUPED, GROUPED && !HERMITIAN, HERK > (C_mid + idx_C_mid, incC_mid, tail, idx_C_mid, tail_opposite);
 
             const int sft        = int(sftA[row]) + int(sftB[col]);
             const TCrt AB_scaled = rescale_crt<TCrt>(AB_crt, sft);
@@ -287,7 +287,7 @@ __global__ void undo_scaling_kernel_special(
 //------------------------------
 template <typename T, typename TAlpha, typename TBeta,
           Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, bool isTRTRMM, bool HERMITIAN, bool GROUPED>
+          cublasFillMode_t UPLO, bool isTRTRMM, bool HERMITIAN, bool GROUPED, bool HERK>
 void undo_scaling_impl(
     const cudaStream_t stream,
     const unsigned m, const unsigned n,
@@ -311,7 +311,7 @@ void undo_scaling_impl(
                 auto part_tail       = tail;
                 if (part_tail.ptr0) part_tail.ptr0 += offset;
                 if (part_tail.ptr1) part_tail.ptr1 += offset;
-                undo_scaling_impl<T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, isTRTRMM, HERMITIAN, GROUPED>(
+                undo_scaling_impl<T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, isTRTRMM, HERMITIAN, GROUPED, HERK>(
                     stream, m, count, mid, ldc_mid, incC_mid, C + first * ldc, ldc,
                     sftA, sftB + first, alpha, beta, part_tail);
                 first += count;
@@ -333,7 +333,7 @@ void undo_scaling_impl(
             using alpha_t   = DeviceScalar<TAlpha>;
             alpha_t alpha_d = alpha_t(alpha);
 
-            undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, void *, HERMITIAN, GROUPED>
+            undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, void *, HERMITIAN, GROUPED, HERK>
                 <<<grid, threads, 0, stream>>>(
                     alpha_d, nullptr, m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
@@ -342,13 +342,13 @@ void undo_scaling_impl(
         const TAlpha alpha_v = *alpha;
 
         if (is_one_h(alpha_v)) {
-            undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, 0, HERMITIAN, GROUPED>
+            undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, 0, HERMITIAN, GROUPED, HERK>
                 <<<grid, threads, 0, stream>>>(
                     m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
         }
         if (is_mone_h(alpha_v)) {
-            undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, 0, HERMITIAN, GROUPED>
+            undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, 0, HERMITIAN, GROUPED, HERK>
                 <<<grid, threads, 0, stream>>>(
                     m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
@@ -357,7 +357,7 @@ void undo_scaling_impl(
         using alpha_t   = HostScalar<TAlpha>;
         alpha_t alpha_h = alpha_t(alpha_v);
 
-        undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, void *, HERMITIAN, GROUPED>
+        undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, void *, HERMITIAN, GROUPED, HERK>
             <<<grid, threads, 0, stream>>>(
                 alpha_h, nullptr, m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -378,7 +378,7 @@ void undo_scaling_impl(
             alpha_t alpha_d = alpha_t(alpha);
             beta_t beta_d   = beta_t(beta);
 
-            undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, beta_t, HERMITIAN, GROUPED>
+            undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, beta_t, HERMITIAN, GROUPED, HERK>
                 <<<grid, threads, 0, stream>>>(
                     alpha_d, beta_d, m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
             return;
@@ -389,21 +389,21 @@ void undo_scaling_impl(
 
         if (is_one_h(alpha_v)) {
             if (is_zero_h(beta_v)) {
-                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, 0, HERMITIAN, GROUPED>
+                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, 0, HERMITIAN, GROUPED, HERK>
                     <<<grid, threads, 0, stream>>>(
                         m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
                 return;
             }
 
             if (is_one_h(beta_v)) {
-                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, 1, HERMITIAN, GROUPED>
+                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, 1, HERMITIAN, GROUPED, HERK>
                     <<<grid, threads, 0, stream>>>(
                         m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
                 return;
             }
 
             if (is_mone_h(beta_v)) {
-                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, -1, HERMITIAN, GROUPED>
+                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, 1, -1, HERMITIAN, GROUPED, HERK>
                     <<<grid, threads, 0, stream>>>(
                         m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
                 return;
@@ -412,21 +412,21 @@ void undo_scaling_impl(
 
         if (is_mone_h(alpha_v)) {
             if (is_zero_h(beta_v)) {
-                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, 0, HERMITIAN, GROUPED>
+                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, 0, HERMITIAN, GROUPED, HERK>
                     <<<grid, threads, 0, stream>>>(
                         m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
                 return;
             }
 
             if (is_one_h(beta_v)) {
-                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, 1, HERMITIAN, GROUPED>
+                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, 1, HERMITIAN, GROUPED, HERK>
                     <<<grid, threads, 0, stream>>>(
                         m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
                 return;
             }
 
             if (is_mone_h(beta_v)) {
-                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, -1, HERMITIAN, GROUPED>
+                undo_scaling_kernel_special<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, -1, -1, HERMITIAN, GROUPED, HERK>
                     <<<grid, threads, 0, stream>>>(
                         m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
                 return;
@@ -435,7 +435,7 @@ void undo_scaling_impl(
 
         if (is_zero_h(beta_v)) {
             using alpha_t = HostScalar<TAlpha>;
-            undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, void *, HERMITIAN, GROUPED>
+            undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, void *, HERMITIAN, GROUPED, HERK>
                 <<<grid, threads, 0, stream>>>(
                     alpha_t(alpha_v), nullptr, m, n, C_mid, ldc_mid, incC_mid,
                     C, ldc, tail, sftA, sftB);
@@ -448,7 +448,7 @@ void undo_scaling_impl(
         alpha_t alpha_h = alpha_t(alpha_v);
         beta_t beta_h   = beta_t(beta_v);
 
-        undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, beta_t, HERMITIAN, GROUPED>
+        undo_scaling_kernel<T, BACKEND, NUM_MODULI, UPLO, isTRTRMM, alpha_t, beta_t, HERMITIAN, GROUPED, HERK>
             <<<grid, threads, 0, stream>>>(
                 alpha_h, beta_h, m, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
     }
@@ -456,7 +456,7 @@ void undo_scaling_impl(
 
 template <typename T, typename TAlpha, typename TBeta,
           Backend BACKEND, unsigned NUM_MODULI,
-          cublasFillMode_t UPLO, bool isTRTRMM, bool HERMITIAN>
+          cublasFillMode_t UPLO, bool isTRTRMM, bool HERMITIAN, bool HERK>
 void undo_scaling(
     cudaStream_t stream,
     unsigned m, unsigned n,
@@ -467,10 +467,10 @@ void undo_scaling(
     crt_tail<BACKEND> tail //
 ) {
     if (tail.grouped) {
-        undo_scaling_impl<T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, isTRTRMM, HERMITIAN, true>(
+        undo_scaling_impl<T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, isTRTRMM, HERMITIAN, true, HERK>(
             stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
     } else {
-        undo_scaling_impl<T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, isTRTRMM, HERMITIAN, false>(
+        undo_scaling_impl<T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, isTRTRMM, HERMITIAN, false, HERK>(
             stream, m, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
     }
 }

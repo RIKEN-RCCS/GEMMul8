@@ -14,7 +14,8 @@ template <typename T, typename TAlpha, typename TBeta,
           Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
           bool isTRTRMM         = false,
-          bool HERMITIAN        = false>
+          bool HERMITIAN        = false,
+          bool HERK             = false>
 void undo_scaling(
     const cudaStream_t stream,
     const unsigned m, const unsigned n,

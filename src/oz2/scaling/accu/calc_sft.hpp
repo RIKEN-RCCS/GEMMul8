@@ -35,9 +35,23 @@ __host__ __device__ __forceinline__ bool norm_requires_fast_scaling(const size_t
     return BACKEND == Backend::INT8 && k > size_t(0x7fffffffU >> unsigned(COMPLEX));
 }
 
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool HERK = false>
+inline unsigned rowwise_sft_num_blocks(
+    const unsigned m, const unsigned n, const size_t incA_lo,
+    const bool symmetric = false //
+) {
+    if (n < rowwise_sft_split_threshold || n > 65535U * rowwise_sft_col_tile) return 0U;
+    constexpr bool COMPLEX  = common::isComplex<T>;
+    constexpr size_t planes = common::table::num_mat_v<BACKEND, NUM_MODULI, COMPLEX, HERK> * (COMPLEX ? 2U : 1U);
+    const unsigned blocks   = (n + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
+    const size_t available  = sizeof(common::low_t<BACKEND>) * incA_lo * planes;
+    const size_t required   = sizeof(common::hi_t<BACKEND>) * size_t(m) * (blocks + unsigned(symmetric));
+    return required <= available ? blocks : 0U;
+}
+
 inline constexpr float mh4u_ru = -0x1.0000060000000p-1F; // -1 * round_up(0.5 / (1 - 4 * 2^-24))
 
-template <unsigned NUM_MODULI, Backend BACKEND = Backend::INT8, bool COMPLEX = false>
+template <unsigned NUM_MODULI, Backend BACKEND = Backend::INT8, bool COMPLEX = false, bool HERK = false>
 __device__ __forceinline__ int32_t calc_sft(int32_t amax) {
     if (amax == 0) return 0;
     constexpr float log2P = common::table::log2P<Backend::INT8, NUM_MODULI, COMPLEX>;
@@ -45,10 +59,10 @@ __device__ __forceinline__ int32_t calc_sft(int32_t amax) {
     return __float2int_rd(__fmaf_rd(mh4u_ru, log2amax, log2P));
 }
 
-template <unsigned NUM_MODULI, Backend BACKEND = Backend::FP8, bool COMPLEX = false>
+template <unsigned NUM_MODULI, Backend BACKEND = Backend::FP8, bool COMPLEX = false, bool HERK = false>
 __device__ __forceinline__ int32_t calc_sft(float amax) {
     if (amax == 0.0f) return 0;
-    constexpr float log2P = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX>;
+    constexpr float log2P = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX, HERK>;
     const float log2amax  = __log2f(amax);
     return __float2int_rd(__fmaf_rd(mh4u_ru, log2amax, log2P));
 }
@@ -350,7 +364,7 @@ __global__ void calc_sft_after_rowwise_sym(
     }
 }
 
-template <typename T, Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO, bool HERK = false>
 __global__ void calc_sft_after_colwise_sym(
     const unsigned m, const unsigned k,
     common::matptr_t<common::hi_t<BACKEND>, common::isComplex<T>> C_hi,
@@ -366,7 +380,7 @@ __global__ void calc_sft_after_colwise_sym(
         const common::hi_t<BACKEND> amax_pre = maxC[col_idx];
         const common::hi_t<BACKEND> amax_new = max(amax_pre, amax);
         const int32_t sft_pre                = sftA[col_idx];
-        const int32_t sft_cor                = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax_new);
+        const int32_t sft_cor                = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>, HERK>(amax_new);
         const int32_t sft_new                = sft_pre + sft_cor;
         sftA[col_idx]                        = static_cast<int16_t>(-sft_new);
     }
@@ -429,12 +443,13 @@ inline void calc_sft_after_rowwise_sym_launch(
     common::matptr_t<common::hi_t<BACKEND>, common::isComplex<T>> C_hi,
     const size_t ldc_hi,
     common::hi_t<BACKEND> *const partial_amax,
-    common::hi_t<BACKEND> *const maxC //
+    common::hi_t<BACKEND> *const maxC,
+    const unsigned num_col_blocks //
 ) {
     constexpr dim3 threads_findmax(threads_x_findmax_tile,
                                    threads_y_findmax_tile);
 
-    if (n < rowwise_sft_split_threshold) {
+    if (num_col_blocks == 0U) {
         const unsigned grid_findmax =
             (m + common::TILE_DIM - 1U) / common::TILE_DIM;
 
@@ -443,9 +458,6 @@ inline void calc_sft_after_rowwise_sym_launch(
                 m, n, k, C_hi, ldc_hi, maxC);
         return;
     }
-
-    const unsigned num_col_blocks =
-        (n + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
 
     const dim3 grid_partial((m + common::TILE_DIM - 1U) / common::TILE_DIM,
                             num_col_blocks);
@@ -618,16 +630,15 @@ inline void calc_sft_after_rowwise_launch(
 ) {
     constexpr dim3 threads_findmax(threads_x_findmax_tile, threads_y_findmax_tile);
 
-    if (n < rowwise_sft_split_threshold || n > 65535U * rowwise_sft_col_tile) {
+    const unsigned num_col_blocks = rowwise_sft_num_blocks<T, BACKEND, NUM_MODULI>(
+        m, n, common::padding(m) * common::padding(k));
+    if (num_col_blocks == 0U) {
         const unsigned grid_findmax = (m + common::TILE_DIM - 1U) / common::TILE_DIM;
         calc_sft_after_rowwise<T, BACKEND, NUM_MODULI, UPLO>
             <<<grid_findmax, threads_findmax, 0, stream>>>(
                 m, n, k, C_hi, ldc_hi, sftA);
         return;
     }
-
-    const unsigned num_col_blocks =
-        (n + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
 
     dim3 grid_partial((m + common::TILE_DIM - 1U) / common::TILE_DIM,
                       num_col_blocks);
@@ -708,16 +719,15 @@ inline void calc_sft_after_rowwise_with_delta_launch(
 ) {
     constexpr dim3 threads_findmax(threads_x_findmax_tile, threads_y_findmax_tile);
 
-    if (n < rowwise_sft_split_threshold || n > 65535U * rowwise_sft_col_tile) {
+    const unsigned num_col_blocks = rowwise_sft_num_blocks<T, BACKEND, NUM_MODULI>(
+        m, n, common::padding(m) * common::padding(k));
+    if (num_col_blocks == 0U) {
         const unsigned grid_findmax = (m + common::TILE_DIM - 1U) / common::TILE_DIM;
         calc_sft_after_rowwise_with_delta<T, BACKEND, NUM_MODULI, UPLO>
             <<<grid_findmax, threads_findmax, 0, stream>>>(
                 m, n, k, C_hi, ldc_hi, col_delta, sftA);
         return;
     }
-
-    const unsigned num_col_blocks =
-        (n + rowwise_sft_col_tile - 1U) / rowwise_sft_col_tile;
 
     const dim3 grid_partial((m + common::TILE_DIM - 1U) / common::TILE_DIM,
                             num_col_blocks);

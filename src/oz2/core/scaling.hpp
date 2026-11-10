@@ -436,7 +436,7 @@ inline void scaling_fast_rk(
     const cublasOperation_t op_scale =
         (FUNC == Func::herk && op_A != CUBLAS_OP_N) ? CUBLAS_OP_T : op_A;
 
-    scaling::fast::scaling<TA, BACKEND, NUM_MODULI, CUBLAS_FILL_MODE_FULL, CUBLAS_DIAG_NON_UNIT>(
+    scaling::fast::scaling<TA, BACKEND, NUM_MODULI, CUBLAS_FILL_MODE_FULL, CUBLAS_DIAG_NON_UNIT, BACKEND == Backend::FP8 && FUNC == Func::herk>(
         stream, op_scale, CUBLAS_SIDE_LEFT, n, k, A, lda, A_lo, lda_lo, incA_lo, sftA);
 }
 

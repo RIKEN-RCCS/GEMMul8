@@ -2,6 +2,7 @@
 #include "../common/common.hpp"
 #include "../core/oz2_core.hpp"
 #include "../core/block_size.hpp"
+#include "../core/fp8_block_size.hpp"
 #include "../core/blocking.hpp"
 #include "worksize.hpp"
 
@@ -67,12 +68,19 @@ std::vector<double> gemm_core(
             do_skipA, do_skipB, stream);
     }
 
-    const core::BlockSize3D block = core::find_block_size_gemm<BACKEND, NUM_MODULI>(
-        m, n, k, limit,
-        [&](size_t mB, size_t nB, size_t kB) {
-            return workSize<common::isComplex<TA>, BACKEND>(
-                mB, nB, kB, NUM_MODULI, false, false, nullptr, nullptr, fastmode);
-        });
+    const auto worksize = [&](size_t mB, size_t nB, size_t kB) {
+        return workSize<common::isComplex<TA>, BACKEND>(
+            mB, nB, kB, NUM_MODULI, false, false, nullptr, nullptr, fastmode);
+    };
+
+    const core::BlockSize3D block = [&] {
+        if constexpr (BACKEND == Backend::FP8) {
+            return core::find_block_size_gemm_fp8<TA, TB, TC, NUM_MODULI>(
+                m, n, k, limit, fastmode, worksize);
+        } else {
+            return core::find_block_size_gemm<BACKEND, NUM_MODULI>(m, n, k, limit, worksize);
+        }
+    }();
 
     if (!block) {
         assert(false && "The workspace-size limit is too small.");

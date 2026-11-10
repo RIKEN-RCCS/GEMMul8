@@ -15,7 +15,7 @@ struct crt_group_constants {
 
     static constexpr bool mixed = B == Backend::FP8 && Complex && [] {
         for (unsigned i = First; i < End; ++i) {
-            if (common::fp8_plan::complex_parts(common::crt_modulus<B, Complex>(N, i)) == 3U) return true;
+            if (common::fp8_plan::complex_parts(common::crt_modulus<B, Complex, Herk>(N, i)) == 3U) return true;
         }
         return false;
     }();
@@ -24,16 +24,16 @@ struct crt_group_constants {
         B == Backend::FP8 &&
         !center &&
         !(Complex && End == First + 2 &&
-          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First)).w == 0 &&
-          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First + 1)).w == 0 &&
-          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First)).products == 3 &&
-          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First + 1)).products == 3) &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, First)).w == 0 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, First + 1)).w == 0 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, First)).products == 3 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, First + 1)).products == 3) &&
         !(Complex && End == First + 2 &&
-          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First)).w > 0 &&
-          common::fp8_plan::get(common::crt_modulus<B, Complex>(N, First + 1)).w > 0) &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, First)).w > 0 &&
+          common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, First + 1)).w > 0) &&
         (!Complex || Vector == 1 || End == First + 2 || mixed);
 
-    using Moduli = common::crt_moduli<B, N, Complex>;
+    using Moduli = common::crt_moduli<B, N, Complex, Herk>;
     using Leaf   = undo_scaling::crt::leaf_constants<Moduli, First, End>;
 
     struct data {
@@ -52,7 +52,7 @@ struct crt_group_constants {
         };
         int32_t a = int32_t(e), b = 0;
         if constexpr (Complex && !(B == Backend::FP8 && common::fp8_plan::get(p).root_minus_one == 0)) {
-            constexpr unsigned index = common::table::active_index<B, N, I, true>;
+            constexpr unsigned index = common::table::active_index<B, N, I, true, Herk>;
             constexpr int64_t hr     = complex_2m_traits<B, index>::half_root;
             a                        = centered(e * ((p + 1) / 2));
             b                        = centered(e * hr);
@@ -156,7 +156,7 @@ struct crt_group_input {
 
     template <unsigned I, unsigned Vector = 1, unsigned Lane = 0, bool Raw = false>
     __device__ __forceinline__ int32_t residue(const Hi *p, size_t i) const {
-        constexpr unsigned mod = common::table::active_index<B, N, I, Complex>;
+        constexpr unsigned mod = common::table::active_index<B, N, I, Complex, Herk>;
         if constexpr (Raw) {
             if constexpr (Vector == 1) return int32_t(p[i]);
             else {
@@ -196,19 +196,19 @@ struct crt_group_input {
 
     static constexpr unsigned products(unsigned i) {
         if constexpr (B == Backend::INT8) return 1;
-        else return common::fp8_plan::get(common::crt_modulus<B, Complex>(N, i)).products;
+        else return common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, i)).products;
     }
 
     template <unsigned I> static constexpr bool three =
         B == Backend::FP8 && Complex &&
-        common::fp8_plan::get(common::crt_modulus<B, Complex>(N, I)).root_minus_one == 0;
+        common::fp8_plan::get(common::crt_modulus<B, Complex, Herk>(N, I)).root_minus_one == 0;
 
     static constexpr unsigned offset(unsigned i) {
         unsigned r = 0;
         for (unsigned j = First; j < i; ++j) {
             unsigned parts = Complex && !Herk ? 2U : 1U;
             if constexpr (B == Backend::FP8 && Complex) {
-                parts = common::fp8_plan::complex_parts(common::crt_modulus<B, Complex>(N, j), Herk);
+                parts = common::fp8_plan::complex_parts(common::crt_modulus<B, Complex, Herk>(N, j), Herk);
             }
             r += products(j) * parts;
         }

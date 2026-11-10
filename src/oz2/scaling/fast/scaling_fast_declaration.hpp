@@ -5,7 +5,7 @@ namespace gemmul8::scaling::fast {
 
 template <typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
-          cublasDiagType_t DIAG = CUBLAS_DIAG_NON_UNIT>
+          cublasDiagType_t DIAG = CUBLAS_DIAG_NON_UNIT, bool HERK = false>
 void scaling(
     const cudaStream_t stream,
     const cublasOperation_t op_A, const cublasSideMode_t side,
