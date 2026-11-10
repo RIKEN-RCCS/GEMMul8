@@ -1,4 +1,5 @@
 #pragma once
+#include "../../common/launch_grid.hpp"
 #include "config.hpp"
 #include "calc_sft.hpp"
 #include "store.hpp"
@@ -10,7 +11,7 @@
 
 namespace gemmul8::scaling::accu {
 
-template <bool UPPER, bool HERM, bool STORE_TRANSPOSE, typename T, Backend BACKEND>
+template <bool UPPER, bool HERM, bool STORE_TRANSPOSE, typename T, Backend BACKEND, bool EXTENDED = false>
 __global__ void extract_symm_hemm_offdiag_kernel(
     const unsigned n,
     const T *const __restrict__ A, const size_t lda,
@@ -23,7 +24,7 @@ __global__ void extract_symm_hemm_offdiag_kernel(
     __shared__ int16_t sft_col[common::TILE_DIM];
 
     const unsigned tile_i = blockIdx.x;
-    const unsigned tile_j = blockIdx.y;
+    const unsigned tile_j = common::block_y<EXTENDED>();
 
     if constexpr (UPPER) {
         if (tile_i >= tile_j) return;
@@ -165,9 +166,11 @@ inline void extract_symm_hemm_launch(
         <<<n, threads_accu, 0, stream>>>(
             n, A, lda, sftA, amaxA);
 
-    extract_symm_hemm_offdiag_kernel<isUPPER, HERM, STORE_TRANSPOSE, T, BACKEND>
-        <<<dim3(nt, nt), threads_extract, 0, stream>>>(
-            n, A, lda, A_lo, lda_lo, sftA);
+    common::launch_grid_y(dim3(nt, nt), [&]<bool EXTENDED>(dim3 part) {
+        extract_symm_hemm_offdiag_kernel<isUPPER, HERM, STORE_TRANSPOSE, T, BACKEND, EXTENDED>
+            <<<part, threads_extract, 0, stream>>>(
+                n, A, lda, A_lo, lda_lo, sftA);
+    });
 
     extract_symm_hemm_diag_kernel<isUPPER, HERM, STORE_TRANSPOSE, T, BACKEND>
         <<<nt, threads_extract, 0, stream>>>(

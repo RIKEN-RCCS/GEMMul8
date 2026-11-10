@@ -1,4 +1,5 @@
 #pragma once
+#include "../../common/launch_grid.hpp"
 #include "../../common/common.hpp"
 #include "../../common/table.hpp"
 #include "find_max.hpp"
@@ -114,7 +115,7 @@ __global__ void calc_sft_sym_colwise(
     }
 }
 
-template <typename T, cublasFillMode_t UPLO, bool HERM>
+template <typename T, cublasFillMode_t UPLO, bool HERM, bool EXTENDED = false>
 __global__ void calc_stat_sym_rowwise_partial(
     const unsigned n,
     const T *const __restrict__ A, const size_t lda,
@@ -124,7 +125,13 @@ __global__ void calc_stat_sym_rowwise_partial(
 
     __shared__ U ssum[common::TILE_DIM][common::TILE_DIM + 1];
 
-    const unsigned col_begin = blockIdx.y * rowwise_sft_col_tile;
+    const unsigned column = common::block_y<EXTENDED>();
+    unsigned columns      = gridDim.y;
+    if constexpr (EXTENDED) {
+        columns = (n - 1U) / rowwise_sft_col_tile + 1U;
+        if (column >= columns) return;
+    }
+    const unsigned col_begin = column * rowwise_sft_col_tile;
     const unsigned col_end   = min(n, col_begin + rowwise_sft_col_tile);
 
     const U sum = calc_nrm_tile_range<T, UPLO, CUBLAS_DIAG_NON_UNIT, HERM>(
@@ -133,7 +140,7 @@ __global__ void calc_stat_sym_rowwise_partial(
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
 
     if (row_idx < n && threadIdx.x == 0) {
-        const size_t idx = size_t(row_idx) * gridDim.y + blockIdx.y;
+        const size_t idx = size_t(row_idx) * columns + column;
         partial_sum[idx] = sum;
     }
 }
@@ -193,9 +200,11 @@ inline void calc_stat_sym_rowwise_launch(
         (n + common::TILE_DIM - 1U) / common::TILE_DIM,
         num_col_blocks);
 
-    calc_stat_sym_rowwise_partial<T, UPLO, HERM>
-        <<<grid_partial, threads_findmax, 0, stream>>>(
-            n, A, lda, partial_sum);
+    common::launch_grid_y(grid_partial, [&]<bool EXTENDED>(dim3 part) {
+        calc_stat_sym_rowwise_partial<T, UPLO, HERM, EXTENDED>
+            <<<part, threads_findmax, 0, stream>>>(
+                n, A, lda, partial_sum);
+    });
 
     constexpr dim3 threads_reduce(threads_x_rowwise_sft_reduce,
                                   threads_y_rowwise_sft_reduce);
@@ -208,7 +217,7 @@ inline void calc_stat_sym_rowwise_launch(
             n, num_col_blocks, partial_sum, sumA);
 }
 
-template <typename T, cublasFillMode_t UPLO, cublasDiagType_t DIAG>
+template <typename T, cublasFillMode_t UPLO, cublasDiagType_t DIAG, bool EXTENDED = false>
 __global__ void calc_sft_rowwise_partial(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -218,7 +227,13 @@ __global__ void calc_sft_rowwise_partial(
 
     __shared__ U ssum[common::TILE_DIM][common::TILE_DIM + 1];
 
-    const unsigned col_begin = blockIdx.y * rowwise_sft_col_tile;
+    const unsigned column = common::block_y<EXTENDED>();
+    unsigned columns      = gridDim.y;
+    if constexpr (EXTENDED) {
+        columns = (cols_A - 1U) / rowwise_sft_col_tile + 1U;
+        if (column >= columns) return;
+    }
+    const unsigned col_begin = column * rowwise_sft_col_tile;
     const unsigned col_end   = min(cols_A, col_begin + rowwise_sft_col_tile);
 
     const U sum = calc_nrm_tile_range<T, UPLO, DIAG>(
@@ -226,7 +241,7 @@ __global__ void calc_sft_rowwise_partial(
 
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < rows_A && threadIdx.x == 0) {
-        const size_t out = size_t(row_idx) * gridDim.y + blockIdx.y;
+        const size_t out = size_t(row_idx) * columns + column;
         partial_sum[out] = sum;
     }
 }
@@ -289,9 +304,11 @@ inline void calc_sft_rowwise_launch(
     dim3 grid_partial((rows_A + common::TILE_DIM - 1U) / common::TILE_DIM,
                       num_col_blocks);
 
-    calc_sft_rowwise_partial<T, UPLO, DIAG>
-        <<<grid_partial, threads_findmax, 0, stream>>>(
-            rows_A, cols_A, A, lda, partial_sum);
+    common::launch_grid_y(grid_partial, [&]<bool EXTENDED>(dim3 part) {
+        calc_sft_rowwise_partial<T, UPLO, DIAG, EXTENDED>
+            <<<part, threads_findmax, 0, stream>>>(
+                rows_A, cols_A, A, lda, partial_sum);
+    });
 
     constexpr dim3 threads_reduce(threads_x_rowwise_sft_reduce,
                                   threads_y_rowwise_sft_reduce);

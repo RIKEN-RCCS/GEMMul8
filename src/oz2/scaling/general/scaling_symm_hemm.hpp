@@ -1,4 +1,5 @@
 #pragma once
+#include "../../common/launch_grid.hpp"
 #include "../../common/common.hpp"
 #include "../../mod/mod.hpp"
 
@@ -11,7 +12,7 @@
 namespace gemmul8::scaling::general {
 
 template <bool UPPER, bool HERM, bool STORE_TRANSPOSE,
-          typename T, Backend BACKEND, unsigned NUM_MODULI>
+          typename T, Backend BACKEND, unsigned NUM_MODULI, bool EXTENDED = false>
 __global__ void scaling_symm_hemm_offdiag_kernel(
     const unsigned n,
     const T *const __restrict__ A, const size_t lda,
@@ -24,7 +25,7 @@ __global__ void scaling_symm_hemm_offdiag_kernel(
     __shared__ int16_t sft_col[common::TILE_DIM];
 
     const unsigned tile_i = blockIdx.x;
-    const unsigned tile_j = blockIdx.y;
+    const unsigned tile_j = common::block_y<EXTENDED>();
     if constexpr (UPPER) {
         if (tile_i >= tile_j) return;
     } else {
@@ -153,9 +154,11 @@ void scaling_symm(
     const unsigned nt      = (n + common::TILE_DIM - 1) / common::TILE_DIM;
     constexpr bool isUPPER = UPLO == CUBLAS_FILL_MODE_UPPER;
 
-    scaling_symm_hemm_offdiag_kernel<isUPPER, false, false, T, BACKEND, NUM_MODULI>
-        <<<dim3(nt, nt), threads, 0, stream>>>(
-            n, A, lda, A_lo, lda_lo, incA_lo, sftA);
+    common::launch_grid_y(dim3(nt, nt), [&]<bool EXTENDED>(dim3 part) {
+        scaling_symm_hemm_offdiag_kernel<isUPPER, false, false, T, BACKEND, NUM_MODULI, EXTENDED>
+            <<<part, threads, 0, stream>>>(
+                n, A, lda, A_lo, lda_lo, incA_lo, sftA);
+    });
 
     scaling_symm_hemm_diag_kernel<isUPPER, false, false, T, BACKEND, NUM_MODULI>
         <<<nt, threads, 0, stream>>>(
@@ -182,9 +185,11 @@ void scaling_hemm(
     const unsigned nt      = (n + common::TILE_DIM - 1) / common::TILE_DIM;
     constexpr bool isUPPER = UPLO == CUBLAS_FILL_MODE_UPPER;
 
-    scaling_symm_hemm_offdiag_kernel<isUPPER, true, STORE_TRANSPOSE, T, BACKEND, NUM_MODULI>
-        <<<dim3(nt, nt), threads, 0, stream>>>(
-            n, A, lda, A_lo, lda_lo, incA_lo, sftA);
+    common::launch_grid_y(dim3(nt, nt), [&]<bool EXTENDED>(dim3 part) {
+        scaling_symm_hemm_offdiag_kernel<isUPPER, true, STORE_TRANSPOSE, T, BACKEND, NUM_MODULI, EXTENDED>
+            <<<part, threads, 0, stream>>>(
+                n, A, lda, A_lo, lda_lo, incA_lo, sftA);
+    });
 
     scaling_symm_hemm_diag_kernel<isUPPER, true, STORE_TRANSPOSE, T, BACKEND, NUM_MODULI>
         <<<nt, threads, 0, stream>>>(

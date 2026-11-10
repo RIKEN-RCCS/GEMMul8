@@ -1,4 +1,5 @@
 #pragma once
+#include "../../common/launch_grid.hpp"
 #include "config.hpp"
 #include "store.hpp"
 
@@ -7,7 +8,7 @@
 
 namespace gemmul8::scaling::accu {
 
-template <typename T, Backend BACKEND>
+template <typename T, Backend BACKEND, bool EXTENDED = false>
 __global__ void extract_rowwise_full_kernel(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -19,7 +20,7 @@ __global__ void extract_rowwise_full_kernel(
     __shared__ ValT tile[common::TILE_DIM][common::TILE_DIM + 1];
 
     const unsigned rowBase = blockIdx.x * common::TILE_DIM;
-    const unsigned colBase = blockIdx.y * common::TILE_DIM;
+    const unsigned colBase = common::block_y<EXTENDED>() * common::TILE_DIM;
 
     const unsigned in_row = rowBase + threadIdx.x;
     const int32_t sft     = (in_row < rows_A) ? sftA[in_row] : 0;
@@ -57,7 +58,7 @@ __global__ void extract_rowwise_full_kernel(
     }
 }
 
-template <bool UPPER, typename T, Backend BACKEND, cublasDiagType_t DIAG>
+template <bool UPPER, typename T, Backend BACKEND, cublasDiagType_t DIAG, bool EXTENDED = false>
 __global__ void extract_rowwise_tri_kernel(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -69,7 +70,7 @@ __global__ void extract_rowwise_tri_kernel(
     __shared__ ValT tile[common::TILE_DIM][common::TILE_DIM + 1];
 
     const unsigned rowBase = blockIdx.x * common::TILE_DIM;
-    const unsigned colBase = blockIdx.y * common::TILE_DIM;
+    const unsigned colBase = common::block_y<EXTENDED>() * common::TILE_DIM;
     if (general::tri_tile_zero<UPPER>(rowBase, colBase)) return;
 
     const bool full_active = general::tri_tile_full_active<UPPER>(rowBase, colBase);

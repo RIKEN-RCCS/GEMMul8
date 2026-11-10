@@ -1,4 +1,5 @@
 #pragma once
+#include "../common/launch_grid.hpp"
 #include "../common/common.hpp"
 #include "../undo_scaling/predicates.hpp"
 #include "../undo_scaling/scalar.hpp"
@@ -185,10 +186,10 @@ struct RealToComplexScalar {
 };
 
 template <typename T, typename BetaScalar,
-          cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL, bool HERMITIAN = false>
+          cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL, bool HERMITIAN = false, bool EXTENDED = false>
 __global__ void scale_block_kernel(unsigned m, unsigned n, BetaScalar beta, T *C, size_t ldc) {
     const unsigned row = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned col = blockIdx.y * blockDim.y + threadIdx.y;
+    const unsigned col = common::block_y<EXTENDED>() * blockDim.y + threadIdx.y;
     if (row >= m || col >= n) return;
     if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
         if (row > col) return;
@@ -211,10 +212,10 @@ __global__ void scale_block_kernel(unsigned m, unsigned n, BetaScalar beta, T *C
     C[idx] = undo_scaling::scale_or_zero<T>(b, C + idx);
 }
 
-template <typename T, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <typename T, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL, bool EXTENDED = false>
 __global__ void zero_block_kernel(unsigned m, unsigned n, T *C, size_t ldc) {
     const unsigned row = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned col = blockIdx.y * blockDim.y + threadIdx.y;
+    const unsigned col = common::block_y<EXTENDED>() * blockDim.y + threadIdx.y;
     if (row >= m || col >= n) return;
     if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
         if (row > col) return;
@@ -226,7 +227,7 @@ __global__ void zero_block_kernel(unsigned m, unsigned n, T *C, size_t ldc) {
 }
 
 template <typename T, typename TBeta = T,
-          cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL, bool HERMITIAN = false>
+          cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL, bool HERMITIAN = false, bool EXTENDED = false>
 inline void scale_block(cudaStream_t stream, size_t m, size_t n, const TBeta *beta, T *C, size_t ldc) {
     if (m == 0 || n == 0) return;
     constexpr dim3 threads(32, 8);
@@ -243,23 +244,29 @@ inline void scale_block(cudaStream_t stream, size_t m, size_t n, const TBeta *be
         }
     }
 
-    const dim3 grid((m + threads.x - 1) / threads.x, (n + threads.y - 1) / threads.y);
+    const dim3 grid = common::make_grid_y<EXTENDED>(dim3((m + threads.x - 1) / threads.x, (n + threads.y - 1) / threads.y));
+    if constexpr (!EXTENDED && (UPLO != CUBLAS_FILL_MODE_FULL || HERMITIAN)) {
+        if (grid.y > 65535U) {
+            scale_block<T, TBeta, UPLO, HERMITIAN, true>(stream, m, n, beta, C, ldc);
+            return;
+        }
+    }
 
     if (!beta) {
-        zero_block_kernel<T, UPLO><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), C, ldc);
+        zero_block_kernel<T, UPLO, EXTENDED><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), C, ldc);
     } else if (undo_scaling::is_device_pointer(beta)) {
         undo_scaling::DeviceScalar<TBeta> b(beta);
-        scale_block_kernel<T, decltype(b), UPLO, HERMITIAN><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
+        scale_block_kernel<T, decltype(b), UPLO, HERMITIAN, EXTENDED><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
     } else {
         if (undo_scaling::is_zero_h(*beta)) {
-            zero_block_kernel<T, UPLO><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), C, ldc);
+            zero_block_kernel<T, UPLO, EXTENDED><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), C, ldc);
             return;
         }
         if constexpr (!HERMITIAN) {
             if (undo_scaling::is_one_h(*beta)) return;
         }
         undo_scaling::HostScalar<TBeta> b(*beta);
-        scale_block_kernel<T, decltype(b), UPLO, HERMITIAN><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
+        scale_block_kernel<T, decltype(b), UPLO, HERMITIAN, EXTENDED><<<grid, threads, 0, stream>>>(unsigned(m), unsigned(n), b, C, ldc);
     }
 }
 

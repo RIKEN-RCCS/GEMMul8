@@ -37,9 +37,11 @@ void extract(
                 dim3 grid((rows_A + common::TILE_DIM - 1) / common::TILE_DIM,
                           (lda_lo + common::TILE_DIM - 1) / common::TILE_DIM);
 
-                extract_rowwise_full_kernel<T, BACKEND>
-                    <<<grid, threads_extract_full, 0, stream>>>(
-                        rows_A, cols_A, A, lda, A_lo, lda_lo, sftA);
+                common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                    extract_rowwise_full_kernel<T, BACKEND, EXTENDED>
+                        <<<part, threads_extract_full, 0, stream>>>(
+                            rows_A, cols_A, A, lda, A_lo, lda_lo, sftA);
+                });
 
             } else {
 
@@ -52,15 +54,19 @@ void extract(
 
                 if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
 
-                    extract_rowwise_tri_kernel<true, T, BACKEND, DIAG>
-                        <<<grid, threads_extract_tri, 0, stream>>>(
-                            rows_A, cols_A, A, lda, A_lo, lda_lo, sftA);
+                    common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                        extract_rowwise_tri_kernel<true, T, BACKEND, DIAG, EXTENDED>
+                            <<<part, threads_extract_tri, 0, stream>>>(
+                                rows_A, cols_A, A, lda, A_lo, lda_lo, sftA);
+                    });
 
                 } else {
 
-                    extract_rowwise_tri_kernel<false, T, BACKEND, DIAG>
-                        <<<grid, threads_extract_tri, 0, stream>>>(
-                            rows_A, cols_A, A, lda, A_lo, lda_lo, sftA);
+                    common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                        extract_rowwise_tri_kernel<false, T, BACKEND, DIAG, EXTENDED>
+                            <<<part, threads_extract_tri, 0, stream>>>(
+                                rows_A, cols_A, A, lda, A_lo, lda_lo, sftA);
+                    });
                 }
             }
 
@@ -105,9 +111,11 @@ void extract(
                 dim3 grid((cols_A + common::TILE_DIM - 1) / common::TILE_DIM,
                           (lda_lo + common::TILE_DIM - 1) / common::TILE_DIM);
 
-                extract_rowwise_full_kernel<T, BACKEND>
-                    <<<grid, threads_extract_full, 0, stream>>>(
-                        cols_A, rows_A, A, lda, A_lo, lda_lo, sftA);
+                common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                    extract_rowwise_full_kernel<T, BACKEND, EXTENDED>
+                        <<<part, threads_extract_full, 0, stream>>>(
+                            cols_A, rows_A, A, lda, A_lo, lda_lo, sftA);
+                });
 
             } else {
 
@@ -120,15 +128,19 @@ void extract(
 
                 if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
 
-                    extract_rowwise_tri_kernel<true, T, BACKEND, DIAG>
-                        <<<grid, threads_extract_tri, 0, stream>>>(
-                            cols_A, rows_A, A, lda, A_lo, lda_lo, sftA);
+                    common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                        extract_rowwise_tri_kernel<true, T, BACKEND, DIAG, EXTENDED>
+                            <<<part, threads_extract_tri, 0, stream>>>(
+                                cols_A, rows_A, A, lda, A_lo, lda_lo, sftA);
+                    });
 
                 } else {
 
-                    extract_rowwise_tri_kernel<false, T, BACKEND, DIAG>
-                        <<<grid, threads_extract_tri, 0, stream>>>(
-                            cols_A, rows_A, A, lda, A_lo, lda_lo, sftA);
+                    common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                        extract_rowwise_tri_kernel<false, T, BACKEND, DIAG, EXTENDED>
+                            <<<part, threads_extract_tri, 0, stream>>>(
+                                cols_A, rows_A, A, lda, A_lo, lda_lo, sftA);
+                    });
                 }
             }
         }

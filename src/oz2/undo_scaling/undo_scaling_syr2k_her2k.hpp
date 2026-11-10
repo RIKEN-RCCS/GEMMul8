@@ -1,4 +1,5 @@
 #pragma once
+#include "../common/launch_grid.hpp"
 
 #include "config.hpp"
 #include "rescale.hpp"
@@ -66,7 +67,7 @@ __device__ __forceinline__ T r2k_update_special(const T Dij, const T Dji, const 
 
 template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO, typename TAlpha, typename TBeta,
-          bool GROUPED = false>
+          bool GROUPED = false, bool EXTENDED = false>
 __global__ void undo_scaling_r2k_offdiag_kernel(
     const TAlpha alpha, const TBeta beta,
     const unsigned n,
@@ -84,7 +85,7 @@ __global__ void undo_scaling_r2k_offdiag_kernel(
     __shared__ T tile_Dji[threads_x_r2k][threads_x_r2k + 1];
 
     const unsigned tile_i = blockIdx.x;
-    const unsigned tile_j = blockIdx.y;
+    const unsigned tile_j = common::block_y<EXTENDED>();
     if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
         if (tile_i >= tile_j) return;
     } else {
@@ -144,7 +145,7 @@ __global__ void undo_scaling_r2k_offdiag_kernel(
 
 template <bool HER2K, typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO, int ALPHA, int BETA,
-          bool GROUPED = false>
+          bool GROUPED = false, bool EXTENDED = false>
 __global__ void undo_scaling_r2k_offdiag_kernel_special(
     const unsigned n,
     const common::mid_t<BACKEND, common::isComplex<T>> *const __restrict__ C_mid,
@@ -161,7 +162,7 @@ __global__ void undo_scaling_r2k_offdiag_kernel_special(
     __shared__ T tile_Dji[threads_x_r2k][threads_x_r2k + 1];
 
     const unsigned tile_i = blockIdx.x;
-    const unsigned tile_j = blockIdx.y;
+    const unsigned tile_j = common::block_y<EXTENDED>();
     if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
         if (tile_i >= tile_j) return;
     } else {
@@ -345,7 +346,7 @@ __global__ void undo_scaling_r2k_diag_kernel_special(
 
 template <bool HER2K, typename T, typename TAlpha, typename TBeta,
           Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO,
-          bool GROUPED>
+          bool GROUPED, bool EXTENDED = false>
 inline void undo_scaling_r2k_launch_impl(
     const cudaStream_t stream,
     const unsigned n,
@@ -358,7 +359,14 @@ inline void undo_scaling_r2k_launch_impl(
 ) {
     constexpr dim3 threads(threads_x_r2k, threads_y_r2k);
     const unsigned nt = (n + threads_x_r2k - 1) / threads_x_r2k;
-    const dim3 grid_offdiag(nt, nt);
+    if constexpr (!EXTENDED) {
+        if (nt > 65535U) {
+            undo_scaling_r2k_launch_impl<HER2K, T, TAlpha, TBeta, BACKEND, NUM_MODULI, UPLO, GROUPED, true>(
+                stream, n, C_mid, ldc_mid, incC_mid, C, ldc, sftA, sftB, alpha, beta, tail);
+            return;
+        }
+    }
+    const dim3 grid_offdiag = common::make_grid_y<EXTENDED>(dim3(nt, nt));
     const dim3 grid_diag(nt);
 
     const bool alpha_dev = is_device_pointer(alpha);
@@ -376,7 +384,7 @@ inline void undo_scaling_r2k_launch_impl(
         alpha_t alpha_d = alpha_t(alpha);
         beta_t beta_d   = beta_t(beta);
 
-        undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED>
+        undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED, EXTENDED>
             <<<grid_offdiag, threads, 0, stream>>>(
                 alpha_d, beta_d, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -391,7 +399,7 @@ inline void undo_scaling_r2k_launch_impl(
 
     if (is_one_h(alpha_v)) {
         if (is_zero_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 0, GROUPED>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 0, GROUPED, EXTENDED>
                 <<<grid_offdiag, threads, 0, stream>>>(
                     n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -402,7 +410,7 @@ inline void undo_scaling_r2k_launch_impl(
         }
 
         if (is_one_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 1, GROUPED>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, 1, GROUPED, EXTENDED>
                 <<<grid_offdiag, threads, 0, stream>>>(
                     n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -413,7 +421,7 @@ inline void undo_scaling_r2k_launch_impl(
         }
 
         if (is_mone_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, -1, GROUPED>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, 1, -1, GROUPED, EXTENDED>
                 <<<grid_offdiag, threads, 0, stream>>>(
                     n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -426,7 +434,7 @@ inline void undo_scaling_r2k_launch_impl(
 
     if (is_mone_h(alpha_v)) {
         if (is_zero_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 0, GROUPED>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 0, GROUPED, EXTENDED>
                 <<<grid_offdiag, threads, 0, stream>>>(
                     n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -437,7 +445,7 @@ inline void undo_scaling_r2k_launch_impl(
         }
 
         if (is_one_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 1, GROUPED>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, 1, GROUPED, EXTENDED>
                 <<<grid_offdiag, threads, 0, stream>>>(
                     n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -448,7 +456,7 @@ inline void undo_scaling_r2k_launch_impl(
         }
 
         if (is_mone_h(beta_v)) {
-            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, -1, GROUPED>
+            undo_scaling_r2k_offdiag_kernel_special<HER2K, T, BACKEND, NUM_MODULI, UPLO, -1, -1, GROUPED, EXTENDED>
                 <<<grid_offdiag, threads, 0, stream>>>(
                     n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 
@@ -465,7 +473,7 @@ inline void undo_scaling_r2k_launch_impl(
     alpha_t alpha_h = alpha_t(alpha_v);
     beta_t beta_h   = beta_t(beta_v);
 
-    undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED>
+    undo_scaling_r2k_offdiag_kernel<HER2K, T, BACKEND, NUM_MODULI, UPLO, alpha_t, beta_t, GROUPED, EXTENDED>
         <<<grid_offdiag, threads, 0, stream>>>(
             alpha_h, beta_h, n, C_mid, ldc_mid, incC_mid, C, ldc, tail, sftA, sftB);
 

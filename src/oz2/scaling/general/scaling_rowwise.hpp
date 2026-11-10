@@ -1,16 +1,16 @@
 #pragma once
+#include "../../common/launch_grid.hpp"
 #include "../../common/common.hpp"
 #include "../../mod/mod.hpp"
 
 #include "config.hpp"
-#include "scaling_general_declaration.hpp"
 #include "roundup.hpp"
 #include "helper_triangular.hpp"
 #include "store.hpp"
 
 namespace gemmul8::scaling::general {
 
-template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false, bool EXTENDED = false>
 __device__ __forceinline__ void scaling_rowwise_full_kernel_body(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -25,7 +25,7 @@ __device__ __forceinline__ void scaling_rowwise_full_kernel_body(
     __shared__ shm_t tile[common::TILE_DIM][common::TILE_DIM + 1];
 
     const unsigned rowBase = blockIdx.x * common::TILE_DIM;
-    const unsigned colBase = blockIdx.y * common::TILE_DIM;
+    const unsigned colBase = common::block_y<EXTENDED>() * common::TILE_DIM;
 
     const unsigned in_row = rowBase + threadIdx.x;
     const int32_t sft     = (in_row < rows_A) ? -sftA[in_row] : 0;
@@ -69,13 +69,13 @@ __device__ __forceinline__ void scaling_rowwise_full_kernel_body(
 }
 
 GEMMUL8_FP8_KERNEL_EX(scaling_rowwise_full_kernel,
-                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false),
-                      (T, BACKEND, NUM_MODULI, CONJ, HERK),
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false, bool EXTENDED = false),
+                      (T, BACKEND, NUM_MODULI, CONJ, HERK, EXTENDED),
                       (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_scalar_registers<T, NUM_MODULI> != 0U),
                       (fp8_scalar_registers<T, NUM_MODULI>),
                       (BACKEND == Backend::FP8 ? fp8_refined_registers<T, NUM_MODULI, fp8_kernel_kind::row> : 0U))
 
-template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false, bool EXTENDED = false>
 __device__ __forceinline__ void scaling_rowwise_full_vec4_kernel_body(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -93,7 +93,7 @@ __device__ __forceinline__ void scaling_rowwise_full_vec4_kernel_body(
 
     __shared__ shm_t tile[common::TILE_DIM][common::TILE_DIM + 1];
     const unsigned rowBase = blockIdx.x * common::TILE_DIM;
-    const unsigned colBase = blockIdx.y * common::TILE_DIM;
+    const unsigned colBase = common::block_y<EXTENDED>() * common::TILE_DIM;
     const unsigned in_row  = rowBase + threadIdx.x;
     const int32_t sft      = in_row < rows_A ? -sftA[in_row] : 0;
 
@@ -131,15 +131,15 @@ __device__ __forceinline__ void scaling_rowwise_full_vec4_kernel_body(
 }
 
 GEMMUL8_FP8_KERNEL_EX(scaling_rowwise_full_vec4_kernel,
-                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false),
-                      (T, BACKEND, NUM_MODULI, CONJ, HERK),
+                      (typename T, Backend BACKEND, unsigned NUM_MODULI, bool CONJ, bool HERK = false, bool EXTENDED = false),
+                      (T, BACKEND, NUM_MODULI, CONJ, HERK, EXTENDED),
                       (BACKEND == Backend::FP8 && !common::isComplex<T> && NUM_MODULI >= 6U && fp8_vector_registers<T, NUM_MODULI> != 0U),
                       (fp8_vector_registers<T, NUM_MODULI>),
                       (BACKEND == Backend::FP8 ? fp8_refined_registers<T, NUM_MODULI, fp8_kernel_kind::vector> : 0U))
 
 template <bool UPPER,
           typename T, Backend BACKEND, unsigned NUM_MODULI,
-          cublasDiagType_t DIAG, bool CONJ, bool HERK = false>
+          cublasDiagType_t DIAG, bool CONJ, bool HERK = false, bool EXTENDED = false>
 __global__ void scaling_rowwise_tri_kernel(
     const unsigned rows_A, const unsigned cols_A,
     const T *const __restrict__ A, const size_t lda,
@@ -154,7 +154,7 @@ __global__ void scaling_rowwise_tri_kernel(
     __shared__ shm_t tile[common::TILE_DIM][common::TILE_DIM + 1];
 
     const unsigned rowBase = blockIdx.x * common::TILE_DIM;
-    const unsigned colBase = blockIdx.y * common::TILE_DIM;
+    const unsigned colBase = common::block_y<EXTENDED>() * common::TILE_DIM;
     if (tri_tile_zero<UPPER>(rowBase, colBase)) return;
     const bool full_active = tri_tile_full_active<UPPER>(rowBase, colBase);
 
@@ -233,23 +233,29 @@ void scaling_rowwise(
             if ((alignment & 3U) == 0U) {
                 constexpr unsigned ty = BACKEND == Backend::FP8 ? 8U : threads_y_rowwise<BACKEND>;
                 constexpr dim3 threads_vec4(threads_x_general, ty);
-                scaling_rowwise_full_vec4_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK>
-                    <<<grid, threads_vec4, 0, stream>>>(
-                        rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
+                common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                    scaling_rowwise_full_vec4_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK, EXTENDED>
+                        <<<part, threads_vec4, 0, stream>>>(
+                            rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
+                });
                 return;
             }
         }
 
-        scaling_rowwise_full_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK>
-            <<<grid, threads, 0, stream>>>(
-                rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
+        common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+            scaling_rowwise_full_kernel<T, BACKEND, NUM_MODULI, CONJ, HERK, EXTENDED>
+                <<<part, threads, 0, stream>>>(
+                    rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
+        });
 
     } else {
 
         constexpr bool isUPPER = UPLO == CUBLAS_FILL_MODE_UPPER;
-        scaling_rowwise_tri_kernel<isUPPER, T, BACKEND, NUM_MODULI, DIAG, CONJ, HERK>
-            <<<grid, threads, 0, stream>>>(
-                rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
+        common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+            scaling_rowwise_tri_kernel<isUPPER, T, BACKEND, NUM_MODULI, DIAG, CONJ, HERK, EXTENDED>
+                <<<part, threads, 0, stream>>>(
+                    rows_A, cols_A, A, lda, A_lo, lda_lo, incA_lo, sftA);
+        });
     }
 }
 

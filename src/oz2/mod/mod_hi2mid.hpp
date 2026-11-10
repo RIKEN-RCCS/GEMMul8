@@ -1,4 +1,5 @@
 #pragma once
+#include "../common/launch_grid.hpp"
 #include "reconstruct_fp8.hpp"
 #include "complex_2m.hpp"
 #include "config.hpp"
@@ -168,7 +169,7 @@ __global__ void mod_hi2mid_ge_kernel(
 #endif
 
 // real
-template <Backend BACKEND, unsigned IDX, cublasFillMode_t UPLO>
+template <Backend BACKEND, unsigned IDX, cublasFillMode_t UPLO, bool EXTENDED = false>
 __global__ void mod_hi2mid_tri_kernel(
     const unsigned n, const size_t sizeC4,
     const common::hix4_t<BACKEND> *__restrict__ C_hix4,
@@ -176,7 +177,7 @@ __global__ void mod_hi2mid_tri_kernel(
     const size_t ldc4 //
 ) {
     const unsigned row4 = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned col  = blockIdx.y * blockDim.y + threadIdx.y;
+    const unsigned col  = common::block_y<EXTENDED>() * blockDim.y + threadIdx.y;
     if (row4 >= ldc4 || col >= n) return;
 
     const unsigned row = row4 << 2;
@@ -216,7 +217,7 @@ __global__ void mod_hi2mid_ge_kernel(
 }
 
 // complex
-template <Backend BACKEND, unsigned IDX, cublasFillMode_t UPLO>
+template <Backend BACKEND, unsigned IDX, cublasFillMode_t UPLO, bool EXTENDED = false>
 __global__ void mod_hi2mid_tri_kernel(
     const unsigned n, const size_t sizeC4,
     const common::hix4_t<BACKEND> *__restrict__ C_hix4_1,
@@ -225,7 +226,7 @@ __global__ void mod_hi2mid_tri_kernel(
     const size_t ldc4 //
 ) {
     const unsigned row4 = blockIdx.x * blockDim.x + threadIdx.x;
-    const unsigned col  = blockIdx.y * blockDim.y + threadIdx.y;
+    const unsigned col  = common::block_y<EXTENDED>() * blockDim.y + threadIdx.y;
     if (row4 >= ldc4 || col >= n) return;
 
     const unsigned row = row4 << 2;
@@ -258,7 +259,7 @@ __device__ __forceinline__ int32_t herk_product_residue(
     }
 }
 
-template <Backend BACKEND, unsigned IDX, cublasFillMode_t UPLO, bool FLIP_IMAG = false>
+template <Backend BACKEND, unsigned IDX, cublasFillMode_t UPLO, bool FLIP_IMAG = false, bool EXTENDED = false>
 __global__ void mod_hi2mid_AHA_kernel(
     const unsigned n, const size_t ldc, const size_t sizeC,
     const common::hi_t<BACKEND> *__restrict__ C_plus,
@@ -273,15 +274,15 @@ __global__ void mod_hi2mid_AHA_kernel(
     constexpr unsigned tile_rows = 8;
 
     if constexpr (UPLO == CUBLAS_FILL_MODE_UPPER) {
-        if (blockIdx.x > blockIdx.y) return;
+        if (blockIdx.x > common::block_y<EXTENDED>()) return;
     } else if constexpr (UPLO == CUBLAS_FILL_MODE_LOWER) {
-        if (blockIdx.x < blockIdx.y) return;
+        if (blockIdx.x < common::block_y<EXTENDED>()) return;
     }
 
     __shared__ int32_t opposite[tile_size][tile_size + 1];
     int32_t direct[tile_size / tile_rows];
     const unsigned row_base = blockIdx.x * tile_size;
-    const unsigned col_base = blockIdx.y * tile_size;
+    const unsigned col_base = common::block_y<EXTENDED>() * tile_size;
     const unsigned tx       = threadIdx.x;
     const unsigned ty       = threadIdx.y;
 
@@ -294,7 +295,7 @@ __global__ void mod_hi2mid_AHA_kernel(
                                     ? herk_product_residue<BACKEND, IDX>(cross, size_t(col) * ldc + row, sizeC)
                                     : 0;
         direct[j / tile_rows] = value;
-        if (blockIdx.x == blockIdx.y) {
+        if (blockIdx.x == common::block_y<EXTENDED>()) {
             opposite[yy][tx] = value;
         } else {
             const unsigned tr = col_base + tx;
@@ -371,9 +372,11 @@ inline void mod_hi2mid_launch(
             const dim3 grid((ldc4 + threads_x - 1) / threads_x,
                             (n + threads_y - 1) / threads_y);
 
-            mod_hi2mid_tri_kernel<BACKEND, IDX, UPLO>
-                <<<grid, threads, 0, stream>>>(
-                    n, sizeC4, C_hix4_1, C_hix4_2, C_midx4, ldc4);
+            common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                mod_hi2mid_tri_kernel<BACKEND, IDX, UPLO, EXTENDED>
+                    <<<part, threads, 0, stream>>>(
+                        n, sizeC4, C_hix4_1, C_hix4_2, C_midx4, ldc4);
+            });
         }
 
     } else {
@@ -396,9 +399,11 @@ inline void mod_hi2mid_launch(
             const dim3 grid((ldc4 + threads_x - 1) / threads_x,
                             (n + threads_y - 1) / threads_y);
 
-            mod_hi2mid_tri_kernel<BACKEND, IDX, UPLO>
-                <<<grid, threads, 0, stream>>>(
-                    n, sizeC4, C_hix4, C_midx4, ldc4);
+            common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+                mod_hi2mid_tri_kernel<BACKEND, IDX, UPLO, EXTENDED>
+                    <<<part, threads, 0, stream>>>(
+                        n, sizeC4, C_hix4, C_midx4, ldc4);
+            });
         }
     }
 }
@@ -416,19 +421,19 @@ inline void mod_hi2mid_AHA_launch(
     constexpr dim3 threads(32, 8);
     const dim3 grid((n + 31u) / 32u, (n + 31u) / 32u);
 
-    mod_hi2mid_AHA_kernel<BACKEND, IDX, UPLO, FLIP_IMAG>
-        <<<grid, threads, 0, stream>>>(
-            n, ldc, sizeC, C_hi.ptr0, C_mid + out_idx * sizeC);
+    common::launch_grid_y(grid, [&]<bool EXTENDED>(dim3 part) {
+        mod_hi2mid_AHA_kernel<BACKEND, IDX, UPLO, FLIP_IMAG, EXTENDED>
+            <<<part, threads, 0, stream>>>(
+                n, ldc, sizeC, C_hi.ptr0, C_mid + out_idx * sizeC);
+    });
 }
 
 } // namespace
 
-#define GEMMUL8_FP8_MID_CASE(P)                                                                   \
-    case P: {                                                                                     \
-        if constexpr (!COMPLEX || common::fp8_plan::scheme<P>.root_minus_one != 0) {              \
-            mod_hi2mid_launch<BACKEND, COMPLEX, P + 20U, UPLO>(stream, ldc, n, C_hi, C_mid, idx); \
-        }                                                                                         \
-        break;                                                                                    \
+#define GEMMUL8_FP8_MID_CASE(P)                                                               \
+    case P: {                                                                                 \
+        mod_hi2mid_launch<BACKEND, COMPLEX, P + 20U, UPLO>(stream, ldc, n, C_hi, C_mid, idx); \
+        break;                                                                                \
     }
 
 template <Backend BACKEND, bool COMPLEX, cublasFillMode_t UPLO>
@@ -441,8 +446,14 @@ void mod_hi2mid(
     const unsigned num_moduli //
 ) {
     if constexpr (BACKEND == Backend::FP8) {
-        switch (common::fp8_plan::modulus(num_moduli, idx, COMPLEX)) {
-            GEMMUL8_FP8_FOR_EACH_MODULUS(GEMMUL8_FP8_MID_CASE)
+        if constexpr (COMPLEX) {
+            switch (common::fp8_plan::modulus(num_moduli, idx, true)) {
+                GEMMUL8_FP8_FOR_EACH_COMPLEX_MODULUS(GEMMUL8_FP8_MID_CASE)
+            }
+        } else {
+            switch (common::fp8_plan::modulus(num_moduli, idx, false)) {
+                GEMMUL8_FP8_FOR_EACH_MODULUS(GEMMUL8_FP8_MID_CASE)
+            }
         }
     } else {
 
