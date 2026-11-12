@@ -310,7 +310,7 @@ __global__ void calc_sft_after_rowwise_with_delta(
     const unsigned row_idx = blockIdx.x * common::TILE_DIM + threadIdx.y;
     if (row_idx < m && threadIdx.x == 0) {
         const int32_t sft_pre = sftA[row_idx];
-        const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax);
+        const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax * amax);
         const int32_t sft_new = sft_pre + sft_cor;
         sftA[row_idx]         = static_cast<int16_t>(-sft_new);
     }
@@ -350,7 +350,7 @@ __global__ void calc_sft_after_colwise_with_delta(
     if (threadIdx.x == 0) {
         const unsigned col_idx = blockIdx.x;
         const int32_t sft_pre  = sftA[col_idx];
-        const int32_t sft_cor  = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax);
+        const int32_t sft_cor  = calc_sft<NUM_MODULI, BACKEND, common::isComplex<T>>(amax * amax);
         const int32_t sft_new  = sft_pre + sft_cor;
         sftA[col_idx]          = static_cast<int16_t>(-sft_new);
     }
@@ -717,7 +717,7 @@ __global__ void calc_sft_after_rowwise_with_delta_reduce(
 
         if (threadIdx.x == 0) {
             const int32_t sft_pre = sftA[row_idx];
-            const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, COMPLEX>(amax);
+            const int32_t sft_cor = calc_sft<NUM_MODULI, BACKEND, COMPLEX>(amax * amax);
             const int32_t sft_new = sft_pre + sft_cor;
             sftA[row_idx]         = static_cast<int16_t>(-sft_new);
         }
