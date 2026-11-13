@@ -1,5 +1,6 @@
 #pragma once
 #include "../../common/common.hpp"
+#include "../../common/table.hpp"
 #include "../general/helper_triangular.hpp"
 #include "../general/helper_hermitian.hpp"
 
@@ -920,7 +921,50 @@ __device__ __forceinline__ common::hi_t<BACKEND> find_max_tile_range(
 //=====
 // for skip-scaling
 //=====
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
+// Integer ranks encode the remaining scaling bound in the existing float scratch.
+// The bias keeps every rank positive for finite positive float bounds and int16 deltas;
+// zero is reserved for a zero product bound.
+inline constexpr int fixed_sft_rank_bias = 65536;
+
+__host__ __device__ constexpr uint32_t fixed_sft_mantissa(const double fraction) {
+    if (fraction == 0.0) return 0x800000U;
+    const double x = fraction * 0x1.62e42fefa39efp-1; // fraction * ln(2)
+    double term = 1.0, sum = 1.0;
+    for (unsigned i = 1; i <= 18; ++i) {
+        term *= x / double(i);
+        sum += term;
+    }
+    return uint32_t((sum - 0x1p-40) * 0x1p23);
+}
+
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX>
+struct fixed_sft_config {
+    static constexpr float log2P       = common::table::log2P<BACKEND, NUM_MODULI, COMPLEX>;
+    static constexpr float budget      = 2.0F * log2P - float(int(log2P));
+    static constexpr int exponent      = int(budget);
+    static constexpr uint32_t mantissa = fixed_sft_mantissa(double(budget) - double(exponent));
+};
+
+template <Backend BACKEND, unsigned NUM_MODULI, bool COMPLEX>
+__device__ __forceinline__ float fixed_sft_rank(const float upper, const int delta) {
+    const uint32_t bits = __float_as_uint(upper);
+    if ((bits & 0x7fffffffU) == 0U) return 0.0F;
+
+    uint32_t significand = bits & 0x7fffffU;
+    int exponent         = int(bits >> 23) - 127;
+    if ((bits >> 23) == 0U) {
+        const int shift = __clz(significand) - 8;
+        significand <<= shift;
+        exponent = -126 - shift;
+    } else {
+        significand |= 0x800000U;
+    }
+
+    constexpr uint32_t limit = fixed_sft_config<BACKEND, NUM_MODULI, COMPLEX>::mantissa;
+    return float(fixed_sft_rank_bias + exponent + delta + int(significand > limit));
+}
+
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
           cublasDiagType_t DIAG = CUBLAS_DIAG_NON_UNIT>
 __device__ __forceinline__ float find_max_real_8i_with_delta(
     const unsigned length,
@@ -932,14 +976,14 @@ __device__ __forceinline__ float find_max_real_8i_with_delta(
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
     for (unsigned i = begin; i < end; i += blockDim.x) {
-        const float v = scalbnf(__int2float_ru(C_hi[i]), delta[i]);
+        const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(C_hi[i]), delta[i]);
         amax          = max(v, amax);
     }
 
     return reduction_max<float>(amax, samax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
           cublasDiagType_t DIAG = CUBLAS_DIAG_NON_UNIT>
 __device__ __forceinline__ float find_max_real_8f_with_delta(
     const unsigned length,
@@ -953,14 +997,14 @@ __device__ __forceinline__ float find_max_real_8f_with_delta(
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
     for (unsigned i = begin; i < end; i += blockDim.x) {
-        const float v = scalbnf(fp8_upper_bound(scale, C_hi[i]), delta[i]);
+        const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, C_hi[i]), delta[i]);
         amax          = max(v, amax);
     }
 
     return reduction_max<float>(amax, samax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
           cublasDiagType_t DIAG = CUBLAS_DIAG_NON_UNIT>
 __device__ __forceinline__ float find_max_complex_8i_with_delta(
     const unsigned length,
@@ -973,14 +1017,14 @@ __device__ __forceinline__ float find_max_complex_8i_with_delta(
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
     for (unsigned i = begin; i < end; i += blockDim.x) {
-        const float v = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[i]);
+        const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[i]);
         amax          = max(v, amax);
     }
 
     return reduction_max<float>(amax, samax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
           cublasDiagType_t DIAG = CUBLAS_DIAG_NON_UNIT>
 __device__ __forceinline__ float find_max_complex_8f_with_delta(
     const unsigned length,
@@ -996,14 +1040,14 @@ __device__ __forceinline__ float find_max_complex_8f_with_delta(
 
     const auto [begin, end] = general::column_load_range<UPLO, DIAG>(length);
     for (unsigned i = begin; i < end; i += blockDim.x) {
-        const float v = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[i]);
+        const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[i]);
         amax          = max(v, amax);
     }
 
     return reduction_max<float>(amax, samax);
 }
 
-template <typename T, Backend BACKEND,
+template <typename T, Backend BACKEND, unsigned NUM_MODULI,
           cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL,
           bool EXCLUDE_DIAG     = false>
 __device__ __forceinline__ float find_max_with_delta(
@@ -1018,24 +1062,24 @@ __device__ __forceinline__ float find_max_with_delta(
     const size_t idx                = blockIdx.x * ldc;
     if constexpr (common::isComplex<T>) {
         if constexpr (BACKEND == Backend::INT8) {
-            return find_max_complex_8i_with_delta<UPLO, DIAG>(
+            return find_max_complex_8i_with_delta<NUM_MODULI, UPLO, DIAG>(
                 length, C_hi.ptr0 + idx, C_hi.ptr1 + idx, delta, samax);
         } else {
-            return find_max_complex_8f_with_delta<UPLO, DIAG>(
+            return find_max_complex_8f_with_delta<NUM_MODULI, UPLO, DIAG>(
                 length, k, C_hi.ptr0 + idx, C_hi.ptr1 + idx, C_hi.ptr2 + idx, delta, samax);
         }
     } else {
         if constexpr (BACKEND == Backend::INT8) {
-            return find_max_real_8i_with_delta<UPLO, DIAG>(
+            return find_max_real_8i_with_delta<NUM_MODULI, UPLO, DIAG>(
                 length, C_hi.ptr0 + idx, delta, samax);
         } else {
-            return find_max_real_8f_with_delta<UPLO, DIAG>(
+            return find_max_real_8f_with_delta<NUM_MODULI, UPLO, DIAG>(
                 length, k, C_hi.ptr0 + idx, delta, samax);
         }
     }
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_real_8i_with_delta(
     const unsigned m, const unsigned n,
     const int32_t *const __restrict__ C_hi, const size_t ldc,
@@ -1056,12 +1100,12 @@ __device__ __forceinline__ float find_max_tile_real_8i_with_delta(
 
             for (unsigned col = row_base + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
-                    const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
             for (unsigned col = full_begin + threadIdx.y; col < n; col += blockDim.y) {
-                const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
 
@@ -1072,12 +1116,12 @@ __device__ __forceinline__ float find_max_tile_real_8i_with_delta(
             const unsigned diag_end = min(n, row_base + common::TILE_DIM);
 
             for (unsigned col = threadIdx.y; col < full_end; col += blockDim.y) {
-                const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
             for (unsigned col = full_end + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
-                    const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
@@ -1085,7 +1129,7 @@ __device__ __forceinline__ float find_max_tile_real_8i_with_delta(
         } else {
 
             for (unsigned col = threadIdx.y; col < n; col += blockDim.y) {
-                const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
         }
@@ -1098,7 +1142,7 @@ __device__ __forceinline__ float find_max_tile_real_8i_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_real_8f_with_delta(
     const unsigned m, const unsigned n, const unsigned k,
     const float *const __restrict__ C_hi, const size_t ldc,
@@ -1120,12 +1164,12 @@ __device__ __forceinline__ float find_max_tile_real_8f_with_delta(
 
             for (unsigned col = row_base + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
-                    const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
             for (unsigned col = full_begin + threadIdx.y; col < n; col += blockDim.y) {
-                const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
 
@@ -1136,12 +1180,12 @@ __device__ __forceinline__ float find_max_tile_real_8f_with_delta(
             const unsigned diag_end = min(n, row_base + common::TILE_DIM);
 
             for (unsigned col = threadIdx.y; col < full_end; col += blockDim.y) {
-                const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
             for (unsigned col = full_end + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
-                    const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
@@ -1149,7 +1193,7 @@ __device__ __forceinline__ float find_max_tile_real_8f_with_delta(
         } else {
 
             for (unsigned col = threadIdx.y; col < n; col += blockDim.y) {
-                const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
         }
@@ -1162,7 +1206,7 @@ __device__ __forceinline__ float find_max_tile_real_8f_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_complex_8i_with_delta(
     const unsigned m, const unsigned n,
     const int32_t *const __restrict__ C_hi_1,
@@ -1184,13 +1228,13 @@ __device__ __forceinline__ float find_max_tile_complex_8i_with_delta(
             for (unsigned col = row_base + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                     amax           = max(v, amax);
                 }
             }
             for (unsigned col = full_begin + threadIdx.y; col < n; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                 amax           = max(v, amax);
             }
 
@@ -1202,13 +1246,13 @@ __device__ __forceinline__ float find_max_tile_complex_8i_with_delta(
 
             for (unsigned col = threadIdx.y; col < full_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                 amax           = max(v, amax);
             }
             for (unsigned col = full_end + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                     amax           = max(v, amax);
                 }
             }
@@ -1217,7 +1261,7 @@ __device__ __forceinline__ float find_max_tile_complex_8i_with_delta(
 
             for (unsigned col = threadIdx.y; col < n; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                 amax           = max(v, amax);
             }
         }
@@ -1230,7 +1274,7 @@ __device__ __forceinline__ float find_max_tile_complex_8i_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_complex_8f_with_delta(
     const unsigned m, const unsigned n, const unsigned k,
     const float *const __restrict__ C_hi_1,
@@ -1254,13 +1298,13 @@ __device__ __forceinline__ float find_max_tile_complex_8f_with_delta(
             for (unsigned col = row_base + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                     amax           = max(v, amax);
                 }
             }
             for (unsigned col = full_begin + threadIdx.y; col < n; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                 amax           = max(v, amax);
             }
 
@@ -1272,13 +1316,13 @@ __device__ __forceinline__ float find_max_tile_complex_8f_with_delta(
 
             for (unsigned col = threadIdx.y; col < full_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                 amax           = max(v, amax);
             }
             for (unsigned col = full_end + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                     amax           = max(v, amax);
                 }
             }
@@ -1287,7 +1331,7 @@ __device__ __forceinline__ float find_max_tile_complex_8f_with_delta(
 
             for (unsigned col = threadIdx.y; col < n; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                 amax           = max(v, amax);
             }
         }
@@ -1300,7 +1344,7 @@ __device__ __forceinline__ float find_max_tile_complex_8f_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <typename T, Backend BACKEND, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_with_delta(
     const unsigned m, const unsigned n, const unsigned k,
     common::matptr_t<common::hi_t<BACKEND>, common::isComplex<T>> C_hi, const size_t ldc,
@@ -1309,24 +1353,24 @@ __device__ __forceinline__ float find_max_tile_with_delta(
 ) {
     if constexpr (common::isComplex<T>) {
         if constexpr (BACKEND == Backend::INT8) {
-            return find_max_tile_complex_8i_with_delta<UPLO>(
+            return find_max_tile_complex_8i_with_delta<NUM_MODULI, UPLO>(
                 m, n, C_hi.ptr0, C_hi.ptr1, ldc, delta, samax);
         } else {
-            return find_max_tile_complex_8f_with_delta<UPLO>(
+            return find_max_tile_complex_8f_with_delta<NUM_MODULI, UPLO>(
                 m, n, k, C_hi.ptr0, C_hi.ptr1, C_hi.ptr2, ldc, delta, samax);
         }
     } else {
         if constexpr (BACKEND == Backend::INT8) {
-            return find_max_tile_real_8i_with_delta<UPLO>(
+            return find_max_tile_real_8i_with_delta<NUM_MODULI, UPLO>(
                 m, n, C_hi.ptr0, ldc, delta, samax);
         } else {
-            return find_max_tile_real_8f_with_delta<UPLO>(
+            return find_max_tile_real_8f_with_delta<NUM_MODULI, UPLO>(
                 m, n, k, C_hi.ptr0, ldc, delta, samax);
         }
     }
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_range_real_8i_with_delta(
     const unsigned m, const unsigned n,
     const int32_t *const __restrict__ C_hi, const size_t ldc,
@@ -1353,14 +1397,14 @@ __device__ __forceinline__ float find_max_tile_range_real_8i_with_delta(
 
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
-                    const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
 
             const unsigned dense_begin = max(col_begin, full_begin);
             for (unsigned col = dense_begin + threadIdx.y; col < col_end; col += blockDim.y) {
-                const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
 
@@ -1374,7 +1418,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8i_with_delta(
             const unsigned dense_end   = min(col_end, full_end);
 
             for (unsigned col = dense_begin + threadIdx.y; col < dense_end; col += blockDim.y) {
-                const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
 
@@ -1383,7 +1427,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8i_with_delta(
 
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
-                    const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
@@ -1391,7 +1435,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8i_with_delta(
         } else {
 
             for (unsigned col = col_begin + threadIdx.y; col < col_end; col += blockDim.y) {
-                const float v = scalbnf(__int2float_ru(row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::INT8, NUM_MODULI, false>(__int2float_ru(row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
         }
@@ -1404,7 +1448,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8i_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_range_real_8f_with_delta(
     const unsigned m, const unsigned n, const unsigned k,
     const float *const __restrict__ C_hi, const size_t ldc,
@@ -1432,14 +1476,14 @@ __device__ __forceinline__ float find_max_tile_range_real_8f_with_delta(
 
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
-                    const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
 
             const unsigned dense_begin = max(col_begin, full_begin);
             for (unsigned col = dense_begin + threadIdx.y; col < col_end; col += blockDim.y) {
-                const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
 
@@ -1453,7 +1497,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8f_with_delta(
             const unsigned dense_end   = min(col_end, full_end);
 
             for (unsigned col = dense_begin + threadIdx.y; col < dense_end; col += blockDim.y) {
-                const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
 
@@ -1462,7 +1506,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8f_with_delta(
 
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
-                    const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                    const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                     amax          = max(v, amax);
                 }
             }
@@ -1470,7 +1514,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8f_with_delta(
         } else {
 
             for (unsigned col = col_begin + threadIdx.y; col < col_end; col += blockDim.y) {
-                const float v = scalbnf(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
+                const float v = fixed_sft_rank<Backend::FP8, NUM_MODULI, false>(fp8_upper_bound(scale, row_ptr[col * ldc]), delta[col]);
                 amax          = max(v, amax);
             }
         }
@@ -1483,7 +1527,7 @@ __device__ __forceinline__ float find_max_tile_range_real_8f_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_range_complex_8i_with_delta(
     const unsigned m, const unsigned n,
     const int32_t *const __restrict__ C_hi_1,
@@ -1511,7 +1555,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8i_with_delta(
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                     amax           = max(v, amax);
                 }
             }
@@ -1519,7 +1563,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8i_with_delta(
             const unsigned dense_begin = max(col_begin, full_begin);
             for (unsigned col = dense_begin + threadIdx.y; col < col_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                 amax           = max(v, amax);
             }
 
@@ -1534,7 +1578,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8i_with_delta(
 
             for (unsigned col = dense_begin + threadIdx.y; col < dense_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                 amax           = max(v, amax);
             }
 
@@ -1544,7 +1588,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8i_with_delta(
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                     amax           = max(v, amax);
                 }
             }
@@ -1553,7 +1597,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8i_with_delta(
 
             for (unsigned col = col_begin + threadIdx.y; col < col_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
+                const float v  = fixed_sft_rank<Backend::INT8, NUM_MODULI, true>(__int2float_ru(complex_int_bound(C_hi_1[i], C_hi_2[i])), delta[col]);
                 amax           = max(v, amax);
             }
         }
@@ -1566,7 +1610,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8i_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
     const unsigned m, const unsigned n, const unsigned k,
     const float *const __restrict__ C_hi_1,
@@ -1596,7 +1640,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (row_idx <= col) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                     amax           = max(v, amax);
                 }
             }
@@ -1604,7 +1648,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
             const unsigned dense_begin = max(col_begin, full_begin);
             for (unsigned col = dense_begin + threadIdx.y; col < col_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                 amax           = max(v, amax);
             }
 
@@ -1619,7 +1663,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
 
             for (unsigned col = dense_begin + threadIdx.y; col < dense_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                 amax           = max(v, amax);
             }
 
@@ -1629,7 +1673,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
             for (unsigned col = diag_begin + threadIdx.y; col < diag_end; col += blockDim.y) {
                 if (col <= row_idx) {
                     const size_t i = col * ldc + row_idx;
-                    const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                    const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                     amax           = max(v, amax);
                 }
             }
@@ -1638,7 +1682,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
 
             for (unsigned col = col_begin + threadIdx.y; col < col_end; col += blockDim.y) {
                 const size_t i = col * ldc + row_idx;
-                const float v  = scalbnf(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
+                const float v  = fixed_sft_rank<Backend::FP8, NUM_MODULI, true>(complex_fp8_bound(scale, C_hi_1[i], C_hi_2[i], C_hi_3[i]), delta[col]);
                 amax           = max(v, amax);
             }
         }
@@ -1651,7 +1695,7 @@ __device__ __forceinline__ float find_max_tile_range_complex_8f_with_delta(
     return common::inner_warp_max<float, common::TILE_DIM>(amax);
 }
 
-template <typename T, Backend BACKEND, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
+template <typename T, Backend BACKEND, unsigned NUM_MODULI, cublasFillMode_t UPLO = CUBLAS_FILL_MODE_FULL>
 __device__ __forceinline__ float find_max_tile_range_with_delta(
     const unsigned m, const unsigned n, const unsigned k,
     common::matptr_t<common::hi_t<BACKEND>, common::isComplex<T>> C_hi, const size_t ldc,
@@ -1662,18 +1706,18 @@ __device__ __forceinline__ float find_max_tile_range_with_delta(
 ) {
     if constexpr (common::isComplex<T>) {
         if constexpr (BACKEND == Backend::INT8) {
-            return find_max_tile_range_complex_8i_with_delta<UPLO>(
+            return find_max_tile_range_complex_8i_with_delta<NUM_MODULI, UPLO>(
                 m, n, C_hi.ptr0, C_hi.ptr1, ldc, samax, delta, col_begin, col_end);
         } else {
-            return find_max_tile_range_complex_8f_with_delta<UPLO>(
+            return find_max_tile_range_complex_8f_with_delta<NUM_MODULI, UPLO>(
                 m, n, k, C_hi.ptr0, C_hi.ptr1, C_hi.ptr2, ldc, samax, delta, col_begin, col_end);
         }
     } else {
         if constexpr (BACKEND == Backend::INT8) {
-            return find_max_tile_range_real_8i_with_delta<UPLO>(
+            return find_max_tile_range_real_8i_with_delta<NUM_MODULI, UPLO>(
                 m, n, C_hi.ptr0, ldc, samax, delta, col_begin, col_end);
         } else {
-            return find_max_tile_range_real_8f_with_delta<UPLO>(
+            return find_max_tile_range_real_8f_with_delta<NUM_MODULI, UPLO>(
                 m, n, k, C_hi.ptr0, ldc, samax, delta, col_begin, col_end);
         }
     }
