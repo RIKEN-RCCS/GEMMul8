@@ -687,6 +687,14 @@ It applies to routines that expose `workA`, `workB`, `enable_skip_scalA`, `enabl
 > Use it only when you are certain that the input matrices and configuration have not changed.
 > When in doubt, disable skipping to ensure correctness.
 
+> [!NOTE]
+>
+> In accurate mode (`fastmode = false`), operand reuse has the following limitations:
+>
+> - Bitwise-identical results between the initial call and subsequent reuse calls are not guaranteed.
+> - Reusing one operand while changing the other can reduce accuracy relative to a fresh call. This limitation is not restricted to alternating reuse of `A` and `B`.
+> - To recompute the scaling for both operands using the current inputs, set both `skip_scalA` and `skip_scalB` to `false`.
+
 #### Example: GEMM with skip scaling
 
 The following example demonstrates skip scaling for `gemm`.
